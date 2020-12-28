@@ -1,21 +1,76 @@
 library(reprex)
+library(tidyverse)
+library(jsonlite)
 
-reprex(
-  {
-    library(magrittr)
-    library(jsonlite)
-    json_control <- function(metadata_files) {
-      sapply(
-        X = metadata_files,
-        FUN = function(x) tryCatch(
-          expr = {jsonlite::read_json(x); FALSE},
-          error = function(e) TRUE
-        )
-      ) %>% as.logical()
-    }
-    metadata_folder <- "/home/csaybar/Documents/Github/letters/letter_01/metadata/"
-    metadata_files <- list.files(metadata_folder, full.names = TRUE)
-    metadata_files[json_control(metadata_files)]
-  }
-)
+# test01 -- json format
+json_control_1 <- function(metadata_files) {
+  sapply(
+    X = metadata_files,
+    FUN = function(x) tryCatch(
+      expr = {jsonlite::read_json(x); FALSE},
+      error = function(e) TRUE
+    )
+  ) %>% as.logical()
+}
 
+#test02 -- empty JSON
+json_control_2 <- function(metadata_files) {
+  lapply(
+    X = metadata_files,
+    FUN = function(x) tryCatch(
+      expr = {jsonlite::read_json(x) %>% names()},
+      error = function(e) TRUE
+    )
+  )
+}
+
+#test03 -- Read comments
+json_control_3 <- function(metadata_files) {
+  lapply(
+    X = metadata_files,
+    FUN = function(x) tryCatch(
+      expr = {
+        x_com <- jsonlite::read_json(x)[["comments"]]
+        if (x_com == "PUT_HERE_YOUR_COMMENT") {
+          NULL
+        } else {
+          sprintf("%s: %s",basename(x),  x_com)
+        }
+        },
+      error = function(e) TRUE
+    )
+  )
+}
+
+# duplicated ID?
+json_control_4 <- function(metadata_files) {
+  lapply(
+    X = metadata_files,
+    FUN = function(x) tryCatch(
+      expr = { any(duplicated(names(jsonlite::read_json(x))))},
+      error = function(e) TRUE
+    )
+  ) %>% unlist()
+}
+
+
+#TEST ID
+metadata_folder <- "metadata/"
+metadata_files <- list.files(metadata_folder, full.names = TRUE)
+metadata_files[json_control_1(metadata_files)]
+
+
+#TEST NAME
+metadata_files %>%
+  json_control_2 %>%
+  sapply(function(x) any(grepl("PUT_HERE_ID", x))) %>%
+  which() -> id_error
+metadata_files[id_error]
+
+#TEST READ_COMMENTS
+metadata_files %>%
+  json_control_3 %>%
+  unlist()
+
+#TEST DUPLICATED ID
+metadata_files[json_control_4(metadata_files)]
