@@ -21,7 +21,7 @@ source("src/utils.R")
 ee_Initialize("csaybar", drive = TRUE)
 
 # 1. Load points with desired cloud average (after run point_creator.R)
-local_cloudsen2_points <- read_sf("data/cloudsen2_points.geojson")
+local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
 
 
 # 2. Classify images in clear, almost clear, low-cloudy, mid-cloudy, cloudy

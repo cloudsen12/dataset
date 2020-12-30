@@ -59,8 +59,9 @@ metadata_folder <- "metadata/"
 metadata_files <- list.files(metadata_folder, full.names = TRUE)
 metadata_files[json_control_1(metadata_files)]
 
-
 #TEST NAME
+metadata_folder <- "metadata/"
+metadata_files <- list.files(metadata_folder, full.names = TRUE)
 metadata_files %>%
   json_control_2 %>%
   sapply(function(x) any(grepl("PUT_HERE_ID", x))) %>%
@@ -68,6 +69,8 @@ metadata_files %>%
 metadata_files[id_error]
 
 #TEST READ_COMMENTS
+metadata_folder <- "metadata/"
+metadata_files <- list.files(metadata_folder, full.names = TRUE)
 metadata_files %>%
   json_control_3 %>%
   unlist()

@@ -31,15 +31,23 @@ landuse_world <- ee$Image("users/csaybar/cloudsen2/world_landuse")
 eo_compass <- ee$FeatureCollection("users/csaybar/cloudsen2/eo_compass")
 eo_compass_img <- ee$Image()$float()$paint(eo_compass, "nmbrfsc")
 palette <- viridisLite::viridis(10)
-map_base <- Map$addLayer(landuse_world, list(min = 0, max = 10, palette = land_use_metadata$color), shown = FALSE) +
-  Map$addLayer(eo_compass_img, list(min = 60, max = 100, palette = palette), legend = TRUE, name = "eocompass")
 
+# previous points -------------------------------
+pot_points_sf <- read_sf("data/cloudsen2_potential_points.geojson")
+sum(!pot_points_sf$good,na.rm = TRUE)
+
+map_base <- Map$addLayer(landuse_world, list(min = 0, max = 10, palette = land_use_metadata$color), shown = FALSE) +
+  Map$addLayer(eo_compass_img, list(min = 60, max = 100, palette = palette), legend = TRUE, name = "eocompass", opacity = 0.5)
+
+map_base$rgee$tokens
 # 2. Select Potential points by class ------------------------------------------
 barren <- landuse_world$eq(1)
 
 barren_map <- Map$addLayer(barren$updateMask(barren), list(min = 1, max = 10), name = "baren") +
   map_base
+barren_map <- mapview(pot_points_sf, barren_map, zcol = "good", cex = 3, legend = FALSE)
 barren_points <- mapedit::editMap(barren_map)
+
 
 cloudsen2 <- barren_points$drawn['geometry']
 cloudsen2$type <- "baren"
