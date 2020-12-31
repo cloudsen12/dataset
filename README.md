@@ -1,5 +1,15 @@
-https://console.cloud.google.com/storage/browser/cloudsen12
+https://drive.google.com/folderview?id=1e2UqLDcTzHyE8aGkQb-PMbpTqX877DwE
 
-CLOUDSEN12MS POINTS:  cloudsen12_points/
+DRIVE12MS FINAL: final/
 
-CLOUDSEN12MS METADATA (JSON): metadata_json/
+DRIVE12MS METADATA: metadata_raw/
+
+
+
+
+
+
+
+
+
+
