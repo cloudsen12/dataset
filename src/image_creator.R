@@ -2,8 +2,8 @@
 #' @author csaybar
 #'
 #' Script used to manually select images in cloudsen12.
-
 library(tidyverse)
+library(googleCloudStorageR)
 library(jsonlite)
 library(mapview)
 library(mapedit)
@@ -18,14 +18,14 @@ library(sp)
 
 set.seed(101)
 source("src/utils.R")
-ee_Initialize("csaybar", drive = TRUE)
+
+ee_Initialize("aybar1994", drive = TRUE, gcs = TRUE)
 
 # 1. Load points with desired cloud average (after run point_creator.R)
 local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
 
-
 # 2. Classify images in clear, almost clear, low-cloudy, mid-cloudy, cloudy
-for (index in seq_len(nrow(local_cloudsen2_points))) {
+for (index in 1451:nrow(local_cloudsen2_points)) {
   cloudsen2_row <- local_cloudsen2_points[index,]
   select_dataset_thumbnail_creator(
     cloudsen2_row = cloudsen2_row,
@@ -34,6 +34,15 @@ for (index in seq_len(nrow(local_cloudsen2_points))) {
     data_range = c("2018-01-01", "2020-07-31"),
     output = "results/"
   )
+  to_upload <- sprintf("results/point_%s", index) %>% list.files(full.names = TRUE)
+  in_gcs <- gsub("results", "metadata_raw", to_upload)
+  for (index in seq_along(to_upload)) {
+    googleCloudStorageR::gcs_upload(
+      file = to_upload[index],
+      bucket = "cloudsen12",
+      name = in_gcs[index]
+    )
+  }
 }
 
 # 3. Download images!
