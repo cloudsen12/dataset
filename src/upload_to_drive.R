@@ -10,7 +10,7 @@ drive_upload_full <- function(from, to) {
     list.files(from, full.names = T, recursive = F),
     ~ drive_upload(
       .x, verbose = FALSE,
-      path = sprintf("%1s/%2s/", to, basename(from))
+      path = sprintf("%1s%2s/", to, basename(from))
     )
   )
 }
