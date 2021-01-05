@@ -34,7 +34,6 @@ palette <- viridisLite::viridis(10)
 
 # previous points -------------------------------
 pot_points_sf <- read_sf("data/cloudsen2_potential_points.geojson")
-sum(!pot_points_sf$good,na.rm = TRUE)
 
 map_base <- Map$addLayer(landuse_world, list(min = 0, max = 10, palette = land_use_metadata$color), shown = FALSE) +
   Map$addLayer(eo_compass_img, list(min = 60, max = 100, palette = palette), legend = TRUE, name = "eocompass", opacity = 0.5)
