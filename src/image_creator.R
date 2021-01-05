@@ -34,15 +34,15 @@ for (index in 1451:nrow(local_cloudsen2_points)) {
     data_range = c("2018-01-01", "2020-07-31"),
     output = "results/"
   )
-  to_upload <- sprintf("results/point_%s", index) %>% list.files(full.names = TRUE)
-  in_gcs <- gsub("results", "metadata_raw", to_upload)
-  for (index in seq_along(to_upload)) {
-    googleCloudStorageR::gcs_upload(
-      file = to_upload[index],
-      bucket = "cloudsen12",
-      name = in_gcs[index]
-    )
-  }
+  # to_upload <- sprintf("results/point_%s", index) %>% list.files(full.names = TRUE)
+  # in_gcs <- gsub("results", "metadata_raw", to_upload)
+  # for (index in seq_along(to_upload)) {
+  #   googleCloudStorageR::gcs_upload(
+  #     file = to_upload[index],
+  #     bucket = "cloudsen12",
+  #     name = in_gcs[index]
+  #   )
+  # }
 }
 
 # 3. Download images!
