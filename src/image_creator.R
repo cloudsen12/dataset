@@ -2,14 +2,16 @@
 #' @author csaybar
 #'
 #' Script used to manually select images in cloudsen12.
-library(tidyverse)
 library(googleCloudStorageR)
+library(googledrive)
+library(tidyverse)
 library(jsonlite)
 library(mapview)
 library(mapedit)
 library(raster)
 library(scales)
 library(stars)
+library(purrr)
 library(grid)
 library(rgee)
 library(png)
@@ -34,22 +36,18 @@ for (index in 1451:nrow(local_cloudsen2_points)) {
     data_range = c("2018-01-01", "2020-07-31"),
     output = "results/"
   )
-  # to_upload <- sprintf("results/point_%s", index) %>% list.files(full.names = TRUE)
-  # in_gcs <- gsub("results", "metadata_raw", to_upload)
-  # for (index in seq_along(to_upload)) {
-  #   googleCloudStorageR::gcs_upload(
-  #     file = to_upload[index],
-  #     bucket = "cloudsen12",
-  #     name = in_gcs[index]
-  #   )
-  # }
 }
 
 # 3. Download images!
-for (index in seq_len(nrow(local_cloudsen2_points))) {
-  cloudsen2_row <- local_cloudsen2_points[index,]
-  dataset_creator_chips2(
-    cloudsen2_row = cloudsen2_row,
+jsonfiles <- list.files(
+  path = "/home/csaybar/Documents/Github/cloudsen12/dataset/results/",
+  pattern = "\\.json$",
+  recursive = TRUE
+)
+
+for (index in seq_alon(jsonfiles)) {
+  dataset_creator_chips(
+    jsonfile = jsonfile,
     kernel_size = c(255, 255),
     output = "results/"
   )
