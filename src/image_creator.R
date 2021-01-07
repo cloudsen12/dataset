@@ -1,7 +1,7 @@
-#' Create image in cloudsen12
+#' Script to create all the images in the cloudsen12 dataset
 #' @author csaybar
-#'
-#' Script used to manually select images in cloudsen12.
+
+# 1. Libraries
 library(googleCloudStorageR)
 library(googledrive)
 library(tidyverse)
@@ -17,38 +17,28 @@ library(rgee)
 library(png)
 library(sf)
 library(sp)
-
-set.seed(101)
 source("src/utils.R")
 
+# 2. Initialize Earth Engine
 ee_Initialize("aybar1994", drive = TRUE, gcs = TRUE)
 
-# 1. Load points with desired cloud average (after run point_creator.R)
+# 3. Load points with desired cloud average (after run point_creator.R)
 local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
 
-# 2. Classify images in clear, almost clear, low-cloudy, mid-cloudy, cloudy
+# 4. Classify (label) images in clear, almost clear, low-cloudy, mid-cloudy, cloudy
 for (index in 1451:nrow(local_cloudsen2_points)) {
   cloudsen2_row <- local_cloudsen2_points[index,]
-  select_dataset_thumbnail_creator(
-    cloudsen2_row = cloudsen2_row,
-    n_images = "max",
-    kernel_size = c(255, 255),
-    data_range = c("2018-01-01", "2020-07-31"),
-    output = "results/"
-  )
+  select_dataset_thumbnail_creator(cloudsen2_row = cloudsen2_row)
 }
 
-# 3. Download images!
+# 5. List all the metadata
 jsonfiles <- list.files(
   path = "/home/csaybar/Documents/Github/cloudsen12/dataset/results/",
   pattern = "\\.json$",
   recursive = TRUE
 )
 
-for (index in seq_alon(jsonfiles)) {
-  dataset_creator_chips(
-    jsonfile = jsonfile,
-    kernel_size = c(255, 255),
-    output = "results/"
-  )
+# 6. Download all images in IRIS format :)
+for (jsonfile in seq_alon(jsonfiles)) {
+  dataset_creator_chips(jsonfile = jsonfile)
 }
