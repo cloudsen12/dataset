@@ -630,3 +630,19 @@ search_metajson <- function(pattern, clean = TRUE) {
   paste0(tempdir(),"/", drive_jsonfile_s$name)
 }
 
+
+assign_imgs <- function(pnumber) {
+  set.seed(100)
+  labeler_names <- c("Jhomira", "Luis", "Eduardo")
+  img_labeler <- sapply(1:pnumber, function(x) sample(3, 3, replace = FALSE)) %>% as.numeric() %>% as.factor
+  levels(img_labeler) <- labeler_names
+  img_labeler
+}
+
+
+drive_metadata_json <- function() {
+  drive <- sprintf("%s/drive_dataset.Rdata", tempdir())
+  drive_jsonfile <- drive_ls(as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK"))
+  save(drive_jsonfile, file = drive)
+  drive_jsonfile
+}
