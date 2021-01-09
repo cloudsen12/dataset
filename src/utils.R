@@ -497,6 +497,11 @@ ee_create_cloudseg <- function(path) {
         type = "image",
         data = "$elevation.B1"
       ),
+      NDVI = list(
+        description = "NDVI values",
+        type = "image",
+        data = "($B5.B1 - $B4.B1)/($B5.B1 + $B4.B1)"
+      ),
       sen2cloudness = list(
         description = "Sen2Cloudness Probability",
         type = "image",
@@ -601,10 +606,27 @@ search_metajson <- function(pattern, clean = TRUE) {
     load(drive)
   }
   drive_jsonfile_s <- drive_jsonfile[drive_jsonfile$name %in% pattern, ]
-  jsonfile <- drive_download(
-    file = drive_jsonfile_s,
-    path = paste0(tempdir(),"/", drive_jsonfile_s$name),
-    overwrite = TRUE)
+  if (nrow(drive_jsonfile_s) == 0) {
+    stop("no metadata found")
+  }
+  jsonfile <- try(
+    drive_download(
+      file = drive_jsonfile_s,
+      path = paste0(tempdir(),"/", drive_jsonfile_s$name),
+      overwrite = TRUE
+    )
+  )
+  stop_5 <- 0
+  while((class(jsonfile)[1] == "try-error") | stop_5 == 5) {
+    jsonfile <- try(
+      drive_download(
+        file = drive_jsonfile_s,
+        path = paste0(tempdir(),"/", drive_jsonfile_s$name),
+        overwrite = TRUE
+      )
+    )
+    stop_5 = stop_5 + 1
+  }
   paste0(tempdir(),"/", drive_jsonfile_s$name)
 }
 

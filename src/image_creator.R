@@ -32,8 +32,7 @@ for (index in 1451:nrow(local_cloudsen2_points)) {
 }
 
 # 5. List all the metadata
-jsonfile <- search_metajson(pattern = "metadata_0004.json", clean = FALSE)
-
+jsonfile <- search_metajson(pattern = "metadata_0001.json", clean = FALSE)
 
 # 6. Download all images in IRIS format :)
 dataset_creator_chips(
