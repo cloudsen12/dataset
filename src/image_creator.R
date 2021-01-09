@@ -32,13 +32,11 @@ for (index in 1451:nrow(local_cloudsen2_points)) {
 }
 
 # 5. List all the metadata
-jsonfiles <- list.files(
-  path = "/home/csaybar/Documents/Github/cloudsen12/dataset/results/",
-  pattern = "\\.json$",
-  recursive = TRUE
-)
+jsonfile <- search_metajson(pattern = "metadata_0004.json", clean = FALSE)
+
 
 # 6. Download all images in IRIS format :)
-for (jsonfile in seq_alon(jsonfiles)) {
-  dataset_creator_chips(jsonfile = jsonfile)
-}
+dataset_creator_chips(
+  jsonfile = jsonfile,
+  output_final = "/home/csaybar/Desktop/cloudsen12"
+)
