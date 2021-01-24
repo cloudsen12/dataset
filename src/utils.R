@@ -154,7 +154,8 @@ dataset_creator_chips <- function(jsonfile,
   jsonfile_r <- jsonlite::read_json(jsonfile)
 
   # 2. Identify all the S2 images
-  s2_ids <- sprintf("COPERNICUS/S2/%s", names(jsonfile_r)[1:5])
+  s2_idsposition <- which(sapply(strsplit(names(jsonfile_r), "_"), length) == 3)
+  s2_ids <- sprintf("COPERNICUS/S2/%s", names(jsonfile_r)[s2_idsposition])
 
   # 3. Create a st_point which represent the center of the chip
   st_point <- st_sfc(geometry = st_point(c(jsonfile_r$x, jsonfile_r$y)), crs = 4326)
@@ -460,7 +461,7 @@ ee_create_cloudseg <- function(path) {
       Cirrus = list(
         description = "Cirrus and high clouds are red.",
         type = "image",
-        data = "$B11.B1**0.8*5",
+        data = "$B10.B1**0.8*5",
         cmap = "jet"
       ),
       cloud_index = list(
@@ -481,7 +482,7 @@ ee_create_cloudseg <- function(path) {
       Snow = list(
         description = "Small ice crystals in high-level clouds appear reddish-orange or peach, and thick ice snow looks vivid red (or red-orange). Bare soil appears bright cyan and vegetation seem greenish in the image. Water on the ground is very dark as it absorbs the SWIR and the red, but small (liquid) water drops in the clouds scatter the light equally in both visible and the SWIR, and therefore it appears white. Water Sediments are displayed as dark red.",
         type = "image",
-        data = c("$B10.B1", "$B11.B1", "$B12.B1")
+        data = c("$B1.B1", "$B11.B1", "$B12.B1")
       ),
       "Sentinel-1" = list(
         description = "RGB of VH, VV and VH-VV.",
@@ -645,4 +646,29 @@ drive_metadata_json <- function() {
   drive_jsonfile <- drive_ls(as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK"))
   save(drive_jsonfile, file = drive)
   drive_jsonfile
+}
+
+
+# calibration
+sen2_id <- c(
+  "20181214T090351_20181214T092521_T33KTU",
+  "20190309T053649_20190309T054326_T43SET",
+  "20190402T083559_20190402T085915_T34KBC",
+  "20190403T133229_20190403T133227_T22KFG",
+  "20190623T092039_20190623T092036_T36VVK",
+  "20190701T051659_20190701T052112_T44SME",
+  "20190729T025549_20190729T025903_T50RKU",
+  "20190828T161839_20190828T162908_T16RFV",
+  "20190902T025541_20190902T025544_T52WFV",
+  "20200125T145719_20200125T150550_T18LYH",
+  "20200405T104619_20200405T105015_T31TBG",
+  "20200410T142731_20200410T143742_T19HCA",
+  "20200619T181919_20200619T181958_T12UVU",
+  "20200712T130251_20200712T130252_T24LVQ",
+  "20200721T180921_20200721T181627_T12TWR"
+)
+
+detect_points <- function(x) {
+  fjson <- jsonlite::read_json(x) %>% names()
+  sum(sen2_id %in% fjson)
 }
