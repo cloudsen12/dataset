@@ -38,7 +38,10 @@ select_dataset_thumbnail_creator <- function(cloudsen2_row,
 
   # 5. Get dates from all the images which are part of S1 and S2 ImageCollection.
   s2_dates <- ee_get_date_ic(s2Sr) %>% as_tibble()
-  s1_dates <- ee_get_date_ic(s1_grd) %>% as_tibble()
+  s1_dates <- tryCatch(
+    expr = ee_get_date_ic(s1_grd) %>% as_tibble(),
+    error = function(e) stop("Sentinel-1 no images ... Please Report!: ", e)
+  )
   sx_fx <- function(x) min(abs(s2_dates$time_start[x] - s1_dates$time_start))
   mindays <- sapply(seq_len(nrow(s2_dates)), sx_fx)
   valid_s2 <- s2_dates[mindays < 2.5,] # Pick up images with no more than 2.5 days of delay
@@ -251,6 +254,7 @@ dataset_creator_chips <- function(jsonfile,
 #' final json file to be fill out for the labelers.
 #'
 #' @noRd
+#' OBS
 metadata_dataset_creator <- function(cloudsen2_row, output) {
   dir_name_point <- sprintf("%s/point_%04d/", output, cloudsen2_row$id)
   cloudsen2_row_no_sf <- st_drop_geometry(cloudsen2_row)
@@ -671,4 +675,30 @@ sen2_id <- c(
 detect_points <- function(x) {
   fjson <- jsonlite::read_json(x) %>% names()
   sum(sen2_id %in% fjson)
+}
+
+
+# Cloud probability (range of interest) to pick up images
+gen_rcloudpoints <- function(n) {
+  # groups_n <- floor(c(0.05,0.3,0.3,0.3,0.05)*n)
+  cloud_ppoints <- list()
+  for (index in seq_len(n)) {
+    groups_n <- rep(1, 5)
+    # if (sum(groups_n) != n) {
+    #   difff <- n - sum(groups_n)
+    #   random_add <- sample(5,1)
+    #   groups_n[random_add] <- groups_n[random_add] + difff
+    # }
+    cloud_ppoints[[index]] <- c(
+      runif(n = groups_n[1], min = 0, max = 10),  # clear
+      runif(n = groups_n[2], min = 10, max = 25), # almost clear
+      runif(n = groups_n[3], min = 25, max = 45), # low-cloudy
+      runif(n = groups_n[4], min = 45, max = 65), # mid-cloudy
+      runif(n = groups_n[5], min = 65, max = 100)) # cloudy
+  }
+  cloud_ppoints %>%
+    as.data.frame() %>%
+    `colnames<-`(NULL) %>%
+    t %>%
+    as.data.frame()
 }
