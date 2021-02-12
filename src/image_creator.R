@@ -26,21 +26,24 @@ ee_Initialize("aybar1994", drive = TRUE, gcs = TRUE)
 local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
 
 # 4. Classify (label) images in clear, almost clear, low-cloudy, mid-cloudy, cloudy
-# for (index in 1451:nrow(local_cloudsen2_points)) {
-#   cloudsen2_row <- local_cloudsen2_points[index,]
-#   select_dataset_thumbnail_creator(cloudsen2_row = cloudsen2_row)
-# }
+cesar <- 5851:7909
+roy <- 7910:9968
+prudencio <- 9969:12023
+for (index in cesar) {
+  cloudsen2_row <- local_cloudsen2_points[index,]
+  select_dataset_thumbnail_creator(cloudsen2_row = cloudsen2_row)
+}
 
-# 5. List all the metadata
-jsonfile <- search_metajson(pattern = "metadata_0019.json", clean = FALSE)
-
-
-# 6. Download all images in IRIS format :)
-dataset_creator_chips(
-  jsonfile = jsonfile,
-  #upgrade_db = FALSE,
-  output_final = "/home/csaybar/Desktop/cloudsen12"
-)
+# # 5. List all the metadata
+# jsonfile <- search_metajson(pattern = "metadata_0019.json", clean = FALSE)
+#
+#
+# # 6. Download all images in IRIS format :)
+# dataset_creator_chips(
+#   jsonfile = jsonfile,
+#   #upgrade_db = FALSE,
+#   output_final = "/home/csaybar/Desktop/cloudsen12"
+# )
 
 
 # 7. Calibration
