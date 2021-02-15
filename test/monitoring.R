@@ -1,6 +1,8 @@
 library(ggplot2)
-# monitoring progress :3
+library(tidyverse)
+library(googledrive)
 
+# monitoring progress :3
 tile_monitoring <- function() {
   drive_jsonfile <- drive_ls(
     path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK")

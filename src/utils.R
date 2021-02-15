@@ -1,14 +1,14 @@
 #' CloudSEN12 thumbnail creator
 #'
 #' Create several thumbnail to find the clouds closest to the theoretical probabilities
-#' All Sentinel2 images have a Sentinel1 pair with no more than 2.5 days of delay.
+#' All sentinel2 images have a Sentinel1 pair with no more than 2.5 days of delay.
 #'
 #' @param n_images  Numeric. Number of images to download, if n_images = "max" the
-#' function will download all the images available.
+#' function will download all the available images.
 #' @param kernel_size Size of the kernel.
 #' @param data_range Range of dates to obtain images.
 #' @param output Folder where to save the results.
-#'
+#' @noRd
 select_dataset_thumbnail_creator <- function(cloudsen2_row,
                                              n_images = "max",
                                              kernel_size = c(255, 255),
@@ -139,20 +139,19 @@ select_dataset_thumbnail_creator <- function(cloudsen2_row,
 }
 
 
-#' Function to create metadata  (i.e. metadata_1500.json)
+#' Main function to create CLOUDSEN12 data
 #'
-#' This function is used in select_dataset_thumbnail_creator to create the
-#' final json file to be fill out for the labelers.
+#' This function is used to download all the images.
 #'
-#' @param jsonfile metadata (*.json) with the sentinel2 ID.
+#' @param jsonfile metadata (*.json) Extract files from Roy Drive.
 #' @param kernel_size Size of the kernel.
 #' @param output_final Folder where to save the results.
 #'
 dataset_creator_chips <- function(jsonfile,
                                   kernel_size = c(255, 255),
                                   output_final = "cloudsen12/") {
-
   point_name <- paste0("point_", gsub("[a-zA-Z]|_|\\.","", basename(jsonfile)))
+
   # 1. Read JSON file
   jsonfile_r <- jsonlite::read_json(jsonfile)
 
@@ -160,7 +159,7 @@ dataset_creator_chips <- function(jsonfile,
   s2_idsposition <- which(sapply(strsplit(names(jsonfile_r), "_"), length) == 3)
   s2_ids <- sprintf("COPERNICUS/S2/%s", names(jsonfile_r)[s2_idsposition])
 
-  # 3. Create a st_point which represent the center of the chip
+  # 3. Create a st_point representing the center of the tile (255x255)
   st_point <- st_sfc(geometry = st_point(c(jsonfile_r$x, jsonfile_r$y)), crs = 4326)
   crs_kernel <- ee$Image(s2_ids[1])$select(0)$projection()$getInfo()$crs
   point_utm <- st_transform(st_point, crs_kernel)
@@ -170,19 +169,38 @@ dataset_creator_chips <- function(jsonfile,
   for (s2_id in s2_ids) {
     message(sprintf("Downloading: %s", s2_id))
 
-    # 3.1 S2 ID and dates
+    # 4.1 S2 ID and dates
     s2_img <- ee$Image(s2_id)
     s2_date <- ee_get_date_img(s2_img)[["time_start"]]
 
-    # 3.2 S1 ID
+    # 4.2 S1 ID
     s1_id <- ee_get_s1(point = ee_point, s2_date = s2_date)
     s1_img <- ee$Image(s1_id)
 
-    # 3.3 Create an Image collection with S2, S1 and cloud mask information
-    s2_fullinfo <- ee_merge_s2_full(s2_id, s1_id, s2_date)
+    # 4.3 Create an Image collection with S2, S1 and cloud mask information
+    s2_s1_img <- ee_merge_s2_full(s2_id, s1_id, s2_date)
 
+    # 4.4 Add the shadow direction
+    s2_fullinfo <- s2_s1_img %>%
+      ee$Image$addBands(shadow_direction(image = s2_img))
 
-    # 3.4 Create a 511x511 tile (list -> data_frame -> sp -> raster)
+    # 4.5 IPL_UV algorithm ... exist enough images?
+    IPL_multitemporal_cloud_logical <- ee_upl_cloud_logical(
+      sen2id = basename(s2_id),
+      roi =  s2_img$geometry()
+    )
+
+    # 4.6 If IPL_multitemporal_cloud_logical is TRUE add to the EE dataset
+    if (IPL_multitemporal_cloud_logical) {
+      IPL_multitemporal_cloud <- ee_upl_cloud(
+        sen2id = basename(s2_id),
+        roi =  s2_img$geometry()
+      ) %>% ee$Image$unmask(-999)
+      s2_fullinfo <- s2_fullinfo %>%
+        ee$Image$addBands(IPL_multitemporal_cloud)
+    }
+
+    # 4.7 Create a 511x511 tile (list -> data_frame -> sp -> raster)
     band_names <- c(s2_fullinfo$bandNames()$getInfo(), "x", "y")
     s2_img_array <- s2_fullinfo$addBands(s1_img) %>%
       ee$Image$addBands(ee$Image$pixelCoordinates(projection = crs_kernel)) %>%
@@ -193,6 +211,7 @@ dataset_creator_chips <- function(jsonfile,
                              projection = crs_kernel,
                              scale = 10) %>%
       ee$FeatureCollection$getInfo()
+
     extract_fn <- function(x) as.numeric(unlist(s2_img_array$features[[1]]$properties[x]))
     image_as_df <- do.call(cbind,lapply(band_names, extract_fn))
     colnames(image_as_df) <- band_names
@@ -202,7 +221,7 @@ dataset_creator_chips <- function(jsonfile,
     final_stack <- stack(lapply(names(image_as_tibble), sf_to_stack))
     crs(final_stack) <- st_crs(crs_kernel)$proj4string
 
-    # 3.5 Prepare folders for iris
+    # 4.8 Prepare folders for iris
     output_final_d <- sprintf("%s/dataset", output_final)
     output_final_folder <- sprintf("%s/dataset/%s/%s", output_final, point_name, basename(s2_id))
 
@@ -213,26 +232,29 @@ dataset_creator_chips <- function(jsonfile,
     dir.create(sprintf("%s/target", output_final_folder), showWarnings = FALSE, recursive = TRUE)
     dir.create(sprintf("%s/thumbnails", output_final_folder), showWarnings = FALSE, recursive = TRUE)
 
-    # 3.6 Save all features inside the input folder
-    bandnames <- c(paste0("B",1:8), "B8A", paste0("B", 9:12), "CDI", "VV", "VH", "angle", "elevation", "landuse")
+    # 4.9 Save all features inside the input folder
+    bandnames <- c(paste0("B",1:8), "B8A", paste0("B", 9:12), "CDI", "VV", "VH", "angle", "elevation", "landuse", "cloudshadow_direction")
+
+    # 4.10 Add 360 if shadow direction is negative
+    final_stack[[24]] <- fix_shadow_direction(final_stack[[24]])
+
+    # 4.11 Save input values
     input_data <- raster::stack(
-      final_stack[[1:13]]/10000, final_stack[[14]], final_stack[[15:17]], final_stack[[22:23]]
+      final_stack[[1:13]]/10000, final_stack[[14]], final_stack[[15:17]], final_stack[[22:24]]
     )
     input_spec <- sprintf("%s/input/%s.tif", output_final_folder, bandnames)
-    lapply(1:19, function(x) writeRaster(input_data[[x]], input_spec[x], overwrite = TRUE))
+    lapply(1:20, function(x) writeRaster(input_data[[x]], input_spec[x], overwrite = TRUE))
 
-    # 3.7 Save all cloud mask inside the target folder
+    # 4.12 Save target values
     # 18-19 -> cmask_s2cloudness| cmask_s2cloudness_reclass (0,1)
     # 20-21 -> cmask_sen2cor | cmask_sen2cor_reclass (0,1,2)
-    bandnames <- c("s2cloudness", "s2cloudness_reclass", "sen2cor", "sen2cor_reclass")
-    benchmarch_data <- final_stack[[18:21]]
-    target_spec <- sprintf("%s/target/%s.tif", output_final_folder, bandnames)
-    lapply(1:4, function(x) writeRaster(benchmarch_data[[x]], target_spec[x], overwrite = TRUE))
+    # 25 -> IPL_cloudmask_reclass
+    create_target_raster(final_stack, IPL_multitemporal_cloud_logical)
 
-    # 3.8 Create cloud-segmentation.json (main file in iris software)
+    # 4.13 Create cloud-segmentation.json (main file in iris software)
     ee_create_cloudseg(path = metadata_main)
 
-    # 3.9 Create metadata.json for each file
+    # 4.14 Create metadata.json for each file
     ee_create_metadata(
       id = basename(s2_id),
       point = c(jsonfile_r$y, jsonfile_r$x),
@@ -240,7 +262,7 @@ dataset_creator_chips <- function(jsonfile,
     )
   }
 
-  # 4 Save geometry
+  # 5. Save geometry
   roi <- extent(final_stack[[1]]) %>%
     st_bbox() %>%
     st_as_sfc()
@@ -248,13 +270,13 @@ dataset_creator_chips <- function(jsonfile,
   write_sf(roi, sprintf("%s/%s.gpkg", dirname(output_final_folder), point_name))
 }
 
-#' Function to create metadata  (i.e. metadata_1500.json)
+
+#' Function to create metadata (i.e. metadata_1500.json)
 #'
 #' This function is used in select_dataset_thumbnail_creator to create the
 #' final json file to be fill out for the labelers.
 #'
 #' @noRd
-#' OBS
 metadata_dataset_creator <- function(cloudsen2_row, output) {
   dir_name_point <- sprintf("%s/point_%04d/", output, cloudsen2_row$id)
   cloudsen2_row_no_sf <- st_drop_geometry(cloudsen2_row)
@@ -286,7 +308,8 @@ metadata_dataset_creator <- function(cloudsen2_row, output) {
   )
 }
 
-#' Get the SENTINEL1 image for a specific SENTINEL2
+
+#' Get the respective Sentinel-1 image for a specific Sentinel-2
 #'
 #' This function is used in select_dataset_thumbnail_creator to create the
 #' final json file to be fill out for the labelers.
@@ -328,31 +351,26 @@ ee_get_s1 <- function(point, s2_date, range = 2.5) {
 }
 
 
-#' Merge SENTINEL2, SENTINEL1 and cloud label (sen2cor, s2cloudness) predictions
-#'
+#' Merge Sentinel-2, Sentinel-1 and cloud label (sen2cor, s2cloudness) predictions
 #' @noRd
 ee_merge_s2_full <- function(s2_id, s1_id, s2_date) {
-
   # 1. Define all the images that will be inside input.tif (ImageCollection)
   ## S1
   s1_grd <- ee$Image(s1_id)
-
   ## S2-level 2A (sen2cor)
   s2_2a <- ee$Image(sprintf("COPERNICUS/S2_SR/%s", basename(s2_id)))
-
   ## S2-level 1C
   s2_1c <- ee$Image(sprintf("COPERNICUS/S2/%s", basename(s2_id)))
   ### Estimate CDI
   s2_cdi <- ee$Algorithms$Sentinel2$CDI(s2_1c)
-
   ## DEM data (MERIT)
   extra_dem <- cloudsen12_dem()
-
   ## LandUSE data (copernicus)
   extra_LC <- cloudsen12_lc()
 
   # 2. Define all the images that will be inside target.tif (ImageCollection)
   ## Cloud mask according to Zupanc et al. 2019
+  ## https://medium.com/sentinel-hub/sentinel-hub-cloud-detector-s2cloudless-a67d263d3025
   s2_cloud <- ee$Image(sprintf("COPERNICUS/S2_CLOUD_PROBABILITY/%s", basename(s2_id)))
   boxcar1 <- ee$Kernel$square(radius = 4, units = 'pixels')
   boxcar2 <- ee$Kernel$square(radius = 2, units = 'pixels')
@@ -360,7 +378,7 @@ ee_merge_s2_full <- function(s2_id, s1_id, s2_date) {
   s2cloudness_prob_reclass <- s2_cloud %>%
     ee$Image$convolve(boxcar1) %>%
     ee$Image$focal_max(kernel = boxcar2, iterations = 1) %>%
-    ee$Image$gte(70) %>%
+    ee$Image$gte(40) %>%
     ee$Image$rename("cmask_s2cloudness_reclass")
 
   # 3. Reclass sen2cor (SLC, sentinel2 level2A)
@@ -388,9 +406,8 @@ ee_merge_s2_full <- function(s2_id, s1_id, s2_date) {
     ee$Image$addBands(extra_LC)
 }
 
-#' Create IRIS main json
+#' Create IRIS main json :)
 #' @noRd
-#'
 ee_create_cloudseg <- function(path) {
   point_name <- gsub("\\.json$","",paste0(strsplit(basename(path), "_")[[1]][3:4],collapse = "_"))
   cseg_list <- list(
@@ -417,9 +434,9 @@ ee_create_cloudseg <- function(path) {
         angle = sprintf("dataset/%s/{id}/input/angle.tif", point_name),
         elevation = sprintf("dataset/%s/{id}/input/elevation.tif", point_name),
         landuse = sprintf("dataset/%s/{id}/input/landuse.tif", point_name),
-        s2cloudness = sprintf("dataset/%s/{id}/target/s2cloudness.tif", point_name),
+        s2cloudness = sprintf("dataset/%s/{id}/target/s2cloudness_prob.tif", point_name),
         s2cloudness_reclass = sprintf("dataset/%s/{id}/target/s2cloudness_reclass.tif", point_name),
-        sen2cor = sprintf("dataset/%s/{id}/target/sen2cor.tif", point_name),
+        sen2cor = sprintf("dataset/%s/{id}/target/sen2cor_real.tif", point_name),
         sen2cor_reclass = sprintf("dataset/%s/{id}/target/sen2cor_reclass.tif", point_name)
       ),
       shape = c(511,511),
@@ -537,7 +554,6 @@ ee_create_cloudseg <- function(path) {
 
 #' Create IRIS relative json (for each image)
 #' @noRd
-#'
 ee_create_metadata <- function(id, point, path) {
   scene_list <- list(
     spacecraft_id = "Sentinel2/Sentinel1",
@@ -554,9 +570,8 @@ ee_create_metadata <- function(id, point, path) {
 }
 
 
-#' Funcion de pato para subir a drive no es mia :X
+#' Funcion de pato para subir a drive no es mia :X <3
 #' @noRd
-#'
 drive_upload_full <- function(from, to) {
   drive_mkdir(name = basename(from), path = to)
   map(
@@ -570,7 +585,6 @@ drive_upload_full <- function(from, to) {
 
 #' Merge MERIT + CrySat2 DEM
 #' @noRd
-#'
 cloudsen12_dem <- function() {
   merit_dem <- ee$Image("MERIT/Hydro/v1_0_1")$select("elv")
   cryosat2_dem <- ee$Image("CPOM/CryoSat2/ANTARCTICA_DEM")$select("elevation")
@@ -581,7 +595,6 @@ cloudsen12_dem <- function() {
 
 #' Proba-V-C3 + ANTARCTICA (70 -> snow)
 #' @noRd
-#'
 cloudsen12_lc <- function() {
   extra_LC <- ee$ImageCollection("COPERNICUS/Landcover/100m/Proba-V-C3/Global") %>%
     ee$ImageCollection$filterDate("2018-12-31", "2019-01-02") %>%
@@ -593,7 +606,8 @@ cloudsen12_lc <- function() {
   ee$Image$add(extra_LC$unmask(0), antarctica_LC)
 }
 
-# Search metajson in roy folder :)
+#' Search metajson in roy folder :)
+#' @noRd
 search_metajson <- function(pattern, clean = TRUE) {
   drive <- sprintf("%s/drive_dataset.Rdata", tempdir())
 
@@ -636,15 +650,16 @@ search_metajson <- function(pattern, clean = TRUE) {
 }
 
 
-assign_imgs <- function(pnumber) {
-  set.seed(100)
-  labeler_names <- c("Jhomira", "Luis", "Eduardo")
-  img_labeler <- sapply(1:pnumber, function(x) sample(3, 3, replace = FALSE)) %>% as.numeric() %>% as.factor
-  levels(img_labeler) <- labeler_names
-  img_labeler
-}
+# assign_imgs <- function(pnumber) {
+#   set.seed(100)
+#   labeler_names <- c("Jhomira", "Luis", "Eduardo")
+#   img_labeler <- sapply(1:pnumber, function(x) sample(3, 3, replace = FALSE)) %>% as.numeric() %>% as.factor
+#   levels(img_labeler) <- labeler_names
+#   img_labeler
+# }
 
-
+#' Search all the metadata available in Roy folder
+#' @noRd
 drive_metadata_json <- function() {
   drive <- sprintf("%s/drive_dataset.Rdata", tempdir())
   drive_jsonfile <- drive_ls(as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK"))
@@ -653,7 +668,7 @@ drive_metadata_json <- function() {
 }
 
 
-# calibration
+# calibration images
 sen2_id <- c(
   "20181214T090351_20181214T092521_T33KTU",
   "20190309T053649_20190309T054326_T43SET",
@@ -672,13 +687,14 @@ sen2_id <- c(
   "20200721T180921_20200721T181627_T12TWR"
 )
 
-detect_points <- function(x) {
-  fjson <- jsonlite::read_json(x) %>% names()
-  sum(sen2_id %in% fjson)
-}
+# detect_points <- function(x) {
+#   fjson <- jsonlite::read_json(x) %>% names()
+#   sum(sen2_id %in% fjson)
+# }
 
 
-# Cloud probability (range of interest) to pick up images
+#' Cloud probability (range of interest) to pick up images
+#' @noRd
 gen_rcloudpoints <- function(n) {
   # groups_n <- floor(c(0.05,0.3,0.3,0.3,0.05)*n)
   cloud_ppoints <- list()
@@ -690,8 +706,8 @@ gen_rcloudpoints <- function(n) {
     #   groups_n[random_add] <- groups_n[random_add] + difff
     # }
     cloud_ppoints[[index]] <- c(
-      runif(n = groups_n[1], min = 0, max = 10),  # clear
-      runif(n = groups_n[2], min = 10, max = 25), # almost clear
+      runif(n = groups_n[1], min = 0, max = 5),  # clear
+      runif(n = groups_n[2], min = 5, max = 25), # almost clear
       runif(n = groups_n[3], min = 25, max = 45), # low-cloudy
       runif(n = groups_n[4], min = 45, max = 65), # mid-cloudy
       runif(n = groups_n[5], min = 65, max = 100)) # cloudy
@@ -701,4 +717,269 @@ gen_rcloudpoints <- function(n) {
     `colnames<-`(NULL) %>%
     t %>%
     as.data.frame()
+}
+
+
+
+# # # -------
+# # # CloudSEN12: https://code.earthengine.google.com/d7a7751a50f18cefc66f18082a87eed3
+# #
+# # # ALGORITHM SETTINGS
+# # cloudThresh <- 0.2 # Ranges from 0-1.Lower value will mask more pixels out. Generally 0.1-0.3 works well with 0.2 being used most commonly
+# # cloudHeights <- ee$List$sequence(200,10000,250) # Height of clouds to use to project cloud shadows
+# # irSumThresh <- 0.3 # Sum of IR bands to include as shadows within TDOM and the shadow shift method (lower number masks out less)
+# # ndviThresh <- -0.1
+# # dilatePixels <- 2 # Pixels to dilate around clouds
+# # contractPixels <- 1 # Pixels to reduce cloud mask and dark shadows by to reduce inclusion of single-pixel comission errors
+# # erodePixels <- 1.5
+# # dilationPixels <- 3
+# # cloudFreeKeepThresh <- 5
+# # cloudMosaicThresh <- 50
+#
+#
+# # calcCloudStats: Calculates a mask for clouds in the image.
+# #        input: im - Image from image collection with a valid mask layer
+# #        output: original image with added stats.
+# #                - CLOUDY_PERCENTAGE: The percentage of the image area affected by clouds
+# #                - ROI_COVERAGE_PERCENT: The percentage of the ROI region this particular image covers
+# #                - CLOUDY_PERCENTAGE_ROI: The percentage of the original ROI which is affected by the clouds in this image
+# #                - cloudScore: A per pixel score of cloudiness
+# calcCloudStats <- function(img) {
+#   imgPoly <- ee$Algorithms$GeometryConstructors$Polygon(
+#     ee$Geometry(img$get("system:footprint"))$coordinates()
+#   )
+#   roi <- ee$Geometry(img$get("ROI"))
+#   intersection <- roi$intersection(imgPoly, ee$ErrorMargin(0.5))
+#   cloudMask <- img$select("cloudScore")$gt(cloudThresh)$clip(roi)$rename("cloudMask")
+#   cloudAreaImg <- cloudMask$multiply(ee$Image$pixelArea())
+#   stats <- cloudAreaImg$reduceRegion(
+#     reducer = ee$Reducer$sum(),
+#     geometry = roi,
+#     scale = 10,
+#     maxPixels = 1e12
+#   )
+#
+#   cloudPercent <- ee$Number(stats$get("cloudMask"))$divide(imgPoly$area())$multiply(100)
+#   coveragePercent <- ee$Number(intersection$area())$divide(roi$area())$multiply(100)
+#   cloudPercentROI <- ee$Number(stats$get("cloudMask"))$divide(roi$area())$multiply(100)
+#
+#
+#   img <- img$set("CLOUDY_PERCENTAGE", cloudPercent)
+#   img <- img$set("ROI_COVERAGE_PERCENT", coveragePercent)
+#   img <- img$set("CLOUDY_PERCENTAGE_ROI", cloudPercentROI)
+#   img
+# }
+#
+# rescale <- function(img, exp, thresholds) {
+#   img$expression(exp, list(img = img))$
+#     subtract(thresholds[1])$
+#     divide(thresholds[2] - thresholds[1])
+# }
+#
+#
+# computeQualityScore <- function(img) {
+#   score <- img$select("cloudScore")$max(img$select("shadowScore"))
+#   score <- score$reproject("EPSG:4326", NULL, 20)$reduceNeighborhood(
+#     reducer = ee$Reducer$mean(),
+#     kernel = ee$Kernel$square(5)
+#   )
+#   score <- score$multiply(-1)
+#   img$addBands(score$rename("cloudShadowScore"))
+# }
+#
+#
+# #**
+# # Implementation of Basic cloud shadow shift
+# #
+# # Author: Gennadii Donchyts
+# # License: Apache 2.0
+# #
+# projectShadows <- function(image) {
+#   meanAzimuth <- image$get("MEAN_SOLAR_AZIMUTH_ANGLE")
+#   meanZenith <- image$get("MEAN_SOLAR_ZENITH_ANGLE")
+#   cloudMask <- image$select("cmask_s2cloudness_reclass")
+#
+#   #Find dark pixels
+#   darkPixelsImg <- image$select(c("B8", "B11", "B12"))$
+#     divide(10000)$
+#     reduce(ee$Reducer$sum())
+#
+#   ndvi <- image$normalizedDifference(c("B8", "B4"))
+#   waterMask <- ndvi$lt(ndviThresh)
+#   darkPixels <- darkPixelsImg$lt(irSumThresh)
+#
+#   # Get the mask of pixels which might be shadows excluding water
+#   darkPixelMask <- darkPixels$And(waterMask$Not())
+#   darkPixelMask <- darkPixelMask$And(cloudMask$Not())
+#
+#   #Find where cloud shadows should be based on solar geometry
+#   #Convert to radians
+#   azR <- ee$Number(meanAzimuth)$add(180)$multiply(base::pi)$divide(180.0)
+#   zenR <- ee$Number(meanZenith)$multiply(base::pi)$divide(180.0)
+#
+#   # Find the shadows
+#   # cloudHeights <- ee$List$sequence(200,10000,1000) # Height of clouds to use to project cloud shadows
+#   cloudHeight <- 1000
+#   shadows <- cloudHeights$map(
+#     ee_utils_pyfunc(
+#       function(cloudHeight){
+#         cloudHeight <- ee$Number(cloudHeight)
+#         shadowCastedDistance <- zenR$tan()$multiply(cloudHeight) # Distance shadow is cast
+#         x <- azR$sin()$multiply(shadowCastedDistance)$multiply(-1) #.divide(nominalScale); #X distance of shadow
+#         y <- azR$cos()$multiply(shadowCastedDistance)$multiply(-1) #Y distance of shadow
+#         image$select("cmask_s2cloudness")$displace(ee$Image$constant(x)$addBands(ee$Image$constant(y)))
+#       }
+#     )
+#   )
+#
+#   shadowMasks <- ee$ImageCollection$fromImages(shadows)
+#   shadowMask <- shadowMasks$mean()
+#
+#
+#   # Create shadow mask
+#   shadowMask <- dilatedErossion(shadowMask$multiply(darkPixelMask))
+#   shadowScore <- shadowMask$reduceNeighborhood(
+#     reducer = ee$Reducer$max(),
+#     kernel = ee$Kernel$square(1)
+#   )
+#   image <- image$addBands(shadowScore$rename("shadowScore"))
+#   image
+# }
+#
+# dilatedErossion <- function(score) {
+#   score$reproject('EPSG:4326', NULL, 20)$
+#     focal_min(radius = erodePixels, iterations = 3)$
+#     focal_max(radius = dilationPixels, iterations = 3)$
+#     reproject("EPSG:4326", NULL, 20)
+# }
+#
+# computeS2CloudScore <- function(img) {
+#   toa <- img$select(c('B1','B2','B3','B4','B5','B6','B7','B8','B8A', 'B9','B10', 'B11','B12'))$
+#     divide(10000)
+#   toa <- toa$addBands(img$select("QA60"))
+#
+#   # ['QA60', 'B1','B2',    'B3',    'B4',   'B5','B6','B7', 'B8','  B8A', 'B9', 'B10', 'B11','B12']
+#   # ['QA60','cb', 'blue', 'green', 'red', 're1','re2','re3','nir', 'nir2', 'waterVapor', 'cirrus','swir1', 'swir2']);
+#   # Compute several indicators of cloudyness and take the minimum of them.
+#   score <- ee$Image(1)
+#
+#   # Clouds are reasonably bright in the blue and cirrus bands.
+#   score <- score$min(rescale(toa, 'img.B2', c(0.1, 0.5)))
+#   score <- score$min(rescale(toa, 'img.B1', c(0.1, 0.3)))
+#   score <- score$min(rescale(toa, 'img.B1 + img.B10', c(0.15, 0.2)))
+#
+#   # Clouds are reasonably bright in all visible bands.
+#   score <- score$min(rescale(toa, 'img.B4 + img.B3 + img.B2', c(0.2, 0.8)))
+#
+#   # Clouds are moist
+#   ndmi <- img$normalizedDifference(c("B8", "B11"))
+#   score <- score$min(rescale(ndmi, "img", c(-0.1, 0.1)))
+#
+#   # However, clouds are not snow.
+#   ndsi <- img$normalizedDifference(c("B3", "B11"))
+#   score <- score$min(rescale(ndsi, 'img', c(0.8, 0.6)))
+#
+#   # Clip the lower end of the score
+#   score <- score$max(ee$Image(0.001))
+#
+#   # Remove small regions and clip the upper bound
+#   dilated <- dilatedErossion(score)$min(ee$Image(1.0))
+#
+#   # score = score.multiply(dilated)
+#   score <- score$reduceNeighborhood(
+#     reducer = ee$Reducer$mean(),
+#     kernel = ee$Kernel$square(5)
+#   )
+#
+#   img$addBands(score$rename("cloudScore"))
+# }
+
+
+#' IPL multitemporal cloud detection algorithm
+#' Issue: This algorithm required images with a CC < 5%. This condition not always
+#' can be fulfilled. ee_upl_cloud_logical test if there are enough images
+#' to run the algorithm.
+#' @param sen2id The ID of the sentinel2 image to test
+#' @param roi Region of interest
+ee_upl_cloud_logical <- function(sen2id, roi) {
+  image_collection_name <- 'COPERNICUS/S2/'
+  image_wrap <- ee_cloud$image_wrapper$S2L1CImage(
+    collection = image_collection_name,
+    index = sen2id
+  )
+  cloud_img_cc <- ee_cloud$multitemporal_cloud_masking$CloudClusterScore(
+    img = image_wrap,
+    region_of_interest = roi,
+    method_pred="persistence"
+  )[[1]]
+
+  ee_results_cloud <- try(cloud_img_cc$getInfo())
+  if (class(ee_results_cloud) == "try-error") {
+    FALSE
+  } else {
+    TRUE
+  }
+}
+
+
+#' IPL multitemporal cloud detection algorithm
+#' @param sen2id The ID of the sentinel2 image to test
+#' @param roi Region of interest
+#' @noRd
+ee_upl_cloud <- function(sen2id, roi) {
+  image_collection_name <- 'COPERNICUS/S2/'
+  image_wrap <- ee_cloud$image_wrapper$S2L1CImage(
+    collection = image_collection_name,
+    index = sen2id
+  )
+  cloud_img_cc <- ee_cloud$multitemporal_cloud_masking$CloudClusterScore(
+    img = image_wrap,
+    region_of_interest = roi,
+    method_pred="persistence"
+  )[[1]]
+  cloud_img_cc %>% ee$Image$rename("IPL_cloud_mask")
+}
+
+#' Estimate the shadow direction considering the SOLAR ZENITH and SOLAR AZIMUTH.
+#' @param image A Sentinel2 image
+#' @noRd
+shadow_direction <- function(image) {
+  meanAzimuth <- image$get("MEAN_SOLAR_AZIMUTH_ANGLE")
+  meanZenith <- image$get("MEAN_SOLAR_ZENITH_ANGLE")
+  azR <- ee$Number(meanAzimuth)$add(180)$multiply(base::pi)$divide(180.0)
+  zenR <- ee$Number(meanZenith)$multiply(base::pi)$divide(180.0)
+  shadowCastedDistance <- zenR$tan()
+  x <- azR$sin()$multiply(shadowCastedDistance)
+  y <- azR$cos()$multiply(shadowCastedDistance)
+  ee$Number$atan2(x, y)$multiply(180)$divide(base::pi) %>%
+    ee$Image() %>%
+    ee$Image$rename("cloudshadow_direction")
+}
+
+
+#' Add 360 if the shadow direction is negative
+#' @param raster RasterStack
+fix_shadow_direction <- function(raster) {
+  if (mean(getValues(raster)) < 0) {
+    raster <- raster + 360
+  } else {
+    raster
+  }
+}
+
+#' Save Cloud mask available in Earth Engine
+#' @noRd
+create_target_raster <- function(final_stack, IPL_multitemporal_cloud_logical) {
+  if (!IPL_multitemporal_cloud_logical) {
+    bandnames <- c("s2cloudness_prob", "s2cloudness_reclass", "sen2cor_real", "sen2cor_reclass")
+    benchmarch_data <- stack(final_stack[[c(18:21)]])
+    target_spec <- sprintf("%s/target/%s.tif", output_final_folder, bandnames)
+    lapply(1:4, function(x) writeRaster(benchmarch_data[[x]], target_spec[x], overwrite = TRUE))
+  } else {
+    IPL_cloudmask_reclass <- final_stack[[25]]
+    benchmarch_data <- stack(final_stack[[c(18:21)]], IPL_cloudmask_reclass)
+    bandnames <- c("s2cloudness_prob", "s2cloudness_reclass", "sen2cor_real", "sen2cor_reclass", "IPL_cloudmask_reclass")
+    target_spec <- sprintf("%s/target/%s.tif", output_final_folder, bandnames)
+    lapply(1:5, function(x) writeRaster(benchmarch_data[[x]], target_spec[x], overwrite = TRUE))
+  }
 }
