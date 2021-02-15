@@ -63,9 +63,9 @@ dataset_creator_chips(
 # drive_jsonfile <- drive_ls(
 #   path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK")
 # )
+#
 # set.seed(100)
 # jsonfiles <- drive_jsonfile$name[sample(length(drive_jsonfile$name), 15)]
-#
 # for (jsonfile in jsonfiles) {
 #   jsonfile_f <- search_metajson(pattern = jsonfile, clean = FALSE)
 #   dataset_creator_chips(

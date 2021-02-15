@@ -249,7 +249,7 @@ dataset_creator_chips <- function(jsonfile,
     # 18-19 -> cmask_s2cloudness| cmask_s2cloudness_reclass (0,1)
     # 20-21 -> cmask_sen2cor | cmask_sen2cor_reclass (0,1,2)
     # 25 -> IPL_cloudmask_reclass
-    create_target_raster(final_stack, IPL_multitemporal_cloud_logical)
+    create_target_raster(final_stack, IPL_multitemporal_cloud_logical, output_final_folder)
 
     # 4.13 Create cloud-segmentation.json (main file in iris software)
     ee_create_cloudseg(path = metadata_main)
@@ -269,7 +269,6 @@ dataset_creator_chips <- function(jsonfile,
   st_crs(roi) <- crs_kernel
   write_sf(roi, sprintf("%s/%s.gpkg", dirname(output_final_folder), point_name))
 }
-
 
 #' Function to create metadata (i.e. metadata_1500.json)
 #'
@@ -706,7 +705,7 @@ gen_rcloudpoints <- function(n) {
     #   groups_n[random_add] <- groups_n[random_add] + difff
     # }
     cloud_ppoints[[index]] <- c(
-      runif(n = groups_n[1], min = 0, max = 5),  # clear
+      runif(n = groups_n[1], min = 0, max = 0),  # clear
       runif(n = groups_n[2], min = 5, max = 25), # almost clear
       runif(n = groups_n[3], min = 25, max = 45), # low-cloudy
       runif(n = groups_n[4], min = 45, max = 65), # mid-cloudy
@@ -718,8 +717,6 @@ gen_rcloudpoints <- function(n) {
     t %>%
     as.data.frame()
 }
-
-
 
 # # # -------
 # # # CloudSEN12: https://code.earthengine.google.com/d7a7751a50f18cefc66f18082a87eed3
@@ -969,7 +966,7 @@ fix_shadow_direction <- function(raster) {
 
 #' Save Cloud mask available in Earth Engine
 #' @noRd
-create_target_raster <- function(final_stack, IPL_multitemporal_cloud_logical) {
+create_target_raster <- function(final_stack, IPL_multitemporal_cloud_logical, output_final_folder) {
   if (!IPL_multitemporal_cloud_logical) {
     bandnames <- c("s2cloudness_prob", "s2cloudness_reclass", "sen2cor_real", "sen2cor_reclass")
     benchmarch_data <- stack(final_stack[[c(18:21)]])
