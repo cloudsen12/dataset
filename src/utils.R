@@ -211,7 +211,6 @@ dataset_creator_chips <- function(jsonfile,
                              projection = crs_kernel,
                              scale = 10) %>%
       ee$FeatureCollection$getInfo()
-
     extract_fn <- function(x) as.numeric(unlist(s2_img_array$features[[1]]$properties[x]))
     image_as_df <- do.call(cbind,lapply(band_names, extract_fn))
     colnames(image_as_df) <- band_names
@@ -225,12 +224,17 @@ dataset_creator_chips <- function(jsonfile,
     output_final_d <- sprintf("%s/dataset", output_final)
     output_final_folder <- sprintf("%s/dataset/%s/%s", output_final, point_name, basename(s2_id))
 
-    metadata_main <- sprintf("%s/cloud_segmentation_%s.json", output_final, point_name)
+    metadata_main <- sprintf("%s/dataset/%s/cloud_segmentation_%s.json", output_final, point_name, point_name)
     metadata_spec <- sprintf("%s/dataset/%s/%s/metadata.json", output_final, point_name, basename(s2_id))
 
     dir.create(sprintf("%s/input", output_final_folder), showWarnings = FALSE, recursive = TRUE)
     dir.create(sprintf("%s/target", output_final_folder), showWarnings = FALSE, recursive = TRUE)
     dir.create(sprintf("%s/thumbnails", output_final_folder), showWarnings = FALSE, recursive = TRUE)
+
+    # Create cloud-segmentation.json (main file in iris software)
+    metadata_main <- sprintf("%s/dataset/%s/cloud_segmentation_%s.json", output_final, point_name, point_name)
+    ee_create_cloudseg(path = metadata_main)
+    lab_lab_user(path = dirname(metadata_main), point_name = point_name)
 
     # 4.9 Save all features inside the input folder
     bandnames <- c(paste0("B",1:8), "B8A", paste0("B", 9:12), "CDI", "VV", "VH", "angle", "elevation", "landuse", "cloudshadow_direction")
@@ -251,18 +255,23 @@ dataset_creator_chips <- function(jsonfile,
     # 25 -> IPL_cloudmask_reclass
     create_target_raster(final_stack, IPL_multitemporal_cloud_logical, output_final_folder)
 
-    # 4.13 Create cloud-segmentation.json (main file in iris software)
-    ee_create_cloudseg(path = metadata_main)
-
-    # 4.14 Create metadata.json for each file
+    # 4.13 Create metadata.json for each file
     ee_create_metadata(
       id = basename(s2_id),
       point = c(jsonfile_r$y, jsonfile_r$x),
       path = metadata_spec
     )
+
+    # 4.14 Create a thumbnail
+    ee_generate_thumbnail(
+      s2_id = s2_id,
+      final_stack =  final_stack,
+      crs_kernel =  crs_kernel,
+      output_final_folder = output_final_folder
+    )
   }
 
-  # 5. Save geometry
+  # 6. Save geometry
   roi <- extent(final_stack[[1]]) %>%
     st_bbox() %>%
     st_as_sfc()
@@ -381,15 +390,31 @@ ee_merge_s2_full <- function(s2_id, s1_id, s2_date) {
     ee$Image$rename("cmask_s2cloudness_reclass")
 
   # 3. Reclass sen2cor (SLC, sentinel2 level2A)
-  ## 4,5,6,11 -> clear
-  ## 8,9,10 -> cloud
-  ## 2, 3 -> cloud shadows
-  ## 1, 7 -> no data
+  ## SEN2COR:
+  ## 1	ff0004	Saturated or defective
+  ## 2	868686	Dark Area Pixels
+  ## 3	774b0a	Cloud Shadows
+  ## 4	10d22c	Vegetation
+  ## 5	ffff52	Bare Soils
+  ## 6	0000ff	Water
+  ## 7	818181	Clouds Low Probability / Unclassified
+  ## 8	c0c0c0	Clouds Medium Probability
+  ## 9	f1f1f1	Clouds High Probability
+  ## 10	bac5eb	Cirrus
+  ## 11	52fff9	Snow / Ice
+  ##
+  ## CLOUDSEN12 Reclass
+  ##
+  ## 2, 4, 5, 6, 7, 11 -> clear (0)
+  ## 8, 9 -> thick cloud (1)
+  ## 10 -> CIRRUS thin cloud (2)
+  ## 3 -> cloud shadows (3)
+  ## 0, 1 -> no data (4)
   ## OBS: In Earth Engine "no data" values are masked out.
   s2_scl <- s2_2a$select("SCL")$rename("cmask_sen2cor")
   s2_scl_reclass <- s2_2a$select("SCL")$remap(
-    c(4, 5, 6, 11, 8, 9, 10, 2, 3, 1, 7),
-    c(0, 0, 0, 0, 1, 1, 1, 2, 2, 1, 1)
+    c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+    c(4, 4, 0, 3, 0, 0, 0, 0, 1, 1, 2, 0)
   )$rename("cmask_sen2cor_reclass")
 
   # 5. Merge S2_1C (B.*) + CDI +  S2_2A (SLC) and S2_CLOUD_PROBABILITY (cloud_prob)
@@ -414,35 +439,36 @@ ee_create_cloudseg <- function(path) {
     authentication_required = TRUE,
     images = list(
       path = list(
-        B1 = sprintf("dataset/%s/{id}/input/B1.tif", point_name),
-        B2 = sprintf("dataset/%s/{id}/input/B2.tif", point_name),
-        B3 = sprintf("dataset/%s/{id}/input/B3.tif", point_name),
-        B4 = sprintf("dataset/%s/{id}/input/B4.tif", point_name),
-        B5 = sprintf("dataset/%s/{id}/input/B5.tif", point_name),
-        B6 = sprintf("dataset/%s/{id}/input/B6.tif", point_name),
-        B7 = sprintf("dataset/%s/{id}/input/B7.tif", point_name),
-        B8 = sprintf("dataset/%s/{id}/input/B8.tif", point_name),
-        B8A = sprintf("dataset/%s/{id}/input/B8A.tif", point_name),
-        B9 = sprintf("dataset/%s/{id}/input/B9.tif", point_name),
-        B10 = sprintf("dataset/%s/{id}/input/B10.tif", point_name),
-        B11 = sprintf("dataset/%s/{id}/input/B11.tif", point_name),
-        B12 = sprintf("dataset/%s/{id}/input/B12.tif", point_name),
-        CDI = sprintf("dataset/%s/{id}/input/CDI.tif", point_name),
-        VV = sprintf("dataset/%s/{id}/input/VV.tif", point_name),
-        VH = sprintf("dataset/%s/{id}/input/VH.tif", point_name),
-        angle = sprintf("dataset/%s/{id}/input/angle.tif", point_name),
-        elevation = sprintf("dataset/%s/{id}/input/elevation.tif", point_name),
-        landuse = sprintf("dataset/%s/{id}/input/landuse.tif", point_name),
-        s2cloudness = sprintf("dataset/%s/{id}/target/s2cloudness_prob.tif", point_name),
-        s2cloudness_reclass = sprintf("dataset/%s/{id}/target/s2cloudness_reclass.tif", point_name),
-        sen2cor = sprintf("dataset/%s/{id}/target/sen2cor_real.tif", point_name),
-        sen2cor_reclass = sprintf("dataset/%s/{id}/target/sen2cor_reclass.tif", point_name)
+        B1 = "{id}/input/B1.tif",
+        B2 = "{id}/input/B2.tif",
+        B3 = "{id}/input/B3.tif",
+        B4 = "{id}/input/B4.tif",
+        B5 = "{id}/input/B5.tif",
+        B6 = "{id}/input/B6.tif",
+        B7 = "{id}/input/B7.tif",
+        B8 = "{id}/input/B8.tif",
+        B8A = "{id}/input/B8A.tif",
+        B9 = "{id}/input/B9.tif",
+        B10 = "{id}/input/B10.tif",
+        B11 = "{id}/input/B11.tif",
+        B12 = "{id}/input/B12.tif",
+        CDI = "{id}/input/CDI.tif",
+        VV = "{id}/input/VV.tif",
+        VH = "{id}/input/VH.tif",
+        angle = "{id}/input/angle.tif",
+        elevation = "{id}/input/elevation.tif",
+        landuse = "{id}/input/landuse.tif",
+        s2cloudness = "{id}/target/s2cloudness_prob.tif",
+        s2cloudness_reclass = "{id}/target/s2cloudness_reclass.tif",
+        sen2cor = "{id}/target/sen2cor_real.tif",
+        sen2cor_reclass = "{id}/target/sen2cor_reclass.tif"
       ),
       shape = c(511,511),
-      metadata = sprintf("dataset/%s/{id}/metadata.json", point_name)
+      metadata = "{id}/metadata.json",
+      thumbnails = "{id}/thumbnails/thumbnail.png"
     ),
     segmentation = list(
-      path = sprintf("dataset/%s/{id}/target/manual.tif", point_name),
+      path = "{id}/target/manual.png",
       mask_encoding = "rgb",
       mask_area = c(0, 0, 511, 511),
       score = "f1",
@@ -910,14 +936,13 @@ ee_upl_cloud_logical <- function(sen2id, roi) {
     method_pred="persistence"
   )[[1]]
 
-  ee_results_cloud <- try(cloud_img_cc$getInfo())
+  ee_results_cloud <- try(expr = cloud_img_cc$getInfo(), silent = TRUE)
   if (class(ee_results_cloud) == "try-error") {
     FALSE
   } else {
     TRUE
   }
 }
-
 
 #' IPL multitemporal cloud detection algorithm
 #' @param sen2id The ID of the sentinel2 image to test
@@ -934,7 +959,12 @@ ee_upl_cloud <- function(sen2id, roi) {
     region_of_interest = roi,
     method_pred="persistence"
   )[[1]]
-  cloud_img_cc %>% ee$Image$rename("IPL_cloud_mask")
+  cloud_img_cc %>%
+    ee$Image$rename("IPL_cloud_mask") %>%
+    ee$Image$remap(
+      c(0, 1, 2),
+      c(0, 3, 1)
+    )
 }
 
 #' Estimate the shadow direction considering the SOLAR ZENITH and SOLAR AZIMUTH.
@@ -979,4 +1009,133 @@ create_target_raster <- function(final_stack, IPL_multitemporal_cloud_logical, o
     target_spec <- sprintf("%s/target/%s.tif", output_final_folder, bandnames)
     lapply(1:5, function(x) writeRaster(benchmarch_data[[x]], target_spec[x], overwrite = TRUE))
   }
+}
+
+
+
+
+#' Create and save a thumbnail
+#' @noRd
+ee_generate_thumbnail <- function(s2_id, final_stack, crs_kernel, output_final_folder) {
+  s2_img432 <- ee_as_raster(
+    image = ee$Image(s2_id)$select(c("B4","B3","B2")),
+    scale = 500,
+    quiet = TRUE
+  )
+  roi <- extent(final_stack[[1]]) %>%
+    st_bbox() %>%
+    st_as_sfc()
+  st_crs(roi) <- crs_kernel
+  png(sprintf("%s/thumbnails/thumbnail.png", output_final_folder), 1000, 1000)
+  max_value <- max(maxValue(s2_img432))
+  plotRGB(s2_img432/max_value, r = 3, g = 2, b = 1, stretch = "lin")
+  plot(roi, add=TRUE, border = "red", lwd = 3)
+  on.exit(dev.off())
+}
+
+
+#' Create lab:lab user
+lab_lab_user <- function(path, point_name) {
+  dir.create(
+    sprintf("%s/%s.iris", path, point_name),
+    recursive = TRUE,
+    showWarnings = FALSE
+  )
+  download.file(
+    "https://drive.google.com/u/1/uc?id=1BZB3ZIcRnpB0wIEFJCXE5XsH7mh2gI7D&export=download",
+    sprintf("%s/%s.iris/iris.db", path, point_name)
+  )
+}
+
+
+
+#' Dilate high-quality results using a 3x3 kernel
+#' @noRd
+dilate_raster <- function(label_raster) {
+  # Labels according to cloudsen12
+  # 0 -> clear
+  # 1 -> thick cloud
+  # 2 -> thin cloud
+  # 3 -> shadow
+
+  # Re-order raster value
+  clear <- (label_raster == 0) * 0
+  thick_cloud <- (label_raster == 1) * 3
+  thin_cloud <- (label_raster == 2) * 1
+  cloud_shadow <- (label_raster == 3) * 2
+
+  order_new_r <- clear + thick_cloud + thin_cloud + cloud_shadow
+  order_new_r_values <- as.matrix(order_new_r)
+
+  # 3x3 kernel
+  (k <- matrix(1,nrow=3, ncol=3))
+
+  # dilate raster R
+  rdilate <- dilate(order_new_r_values, k)
+  order_new_r[] <- rdilate
+
+
+  # Re-order raster value
+  clear <- (order_new_r == 0) * 0
+  thick_cloud <- (order_new_r == 3) * 1
+  thin_cloud <- (order_new_r == 1) * 2
+  cloud_shadow <- (order_new_r == 2) * 3
+
+  # final_raster
+  final_r <- clear + thick_cloud + thin_cloud + cloud_shadow
+  final_r
+}
+
+#' Generate previews (in the 5 images)
+#' @noRd
+generate_preview <- function() {
+
+}
+
+
+#' Generate a preview in a specific image
+#' @noRd
+generate_spplot <-function(rgb, label_raster, output = "comparison.svg") {
+  # Convert RGB to use with spplot
+  lout <- rgb2spLayout(rgb)
+
+  # raster label to factor
+  label_raster[label_raster == 0] = NA
+  label_raster_f <- as.factor(label_raster)
+
+  # Extract attribute table
+  rat <- levels(label_raster_f)[[1]]
+
+  # Set custom breaks
+  rat[["classes"]] <- c("thick", "thin", "cloud")
+
+  # Add back label_raster_f
+  levels(label_raster_f) <- rat
+
+  # label spplot
+  spplot1 <- spplot(
+    obj = label_raster,
+    sp.layout = list(
+      list("sp.points",centroid_pt,cex = 0),
+      lout
+    ),
+    par.settings = list(axis.line = list(col = "transparent")),
+    colorkey=FALSE
+  )
+
+  fake_r <- label_raster
+  fake_r[fake_r >= 0] = NA
+  fake_r[1,1] = 0
+  # RGB spplot
+  spplot1 <- spplot(
+    obj = fake_r,
+    sp.layout = lout,
+    cex = 0,
+    par.settings = list(axis.line = list(col = "transparent")),
+    colorkey=FALSE,
+    alpha.regions = 0
+  )
+  svg(output)
+  grid.arrange(spplot1, spplot2, nrow = 1)
+  on.exit(dev.off())
 }

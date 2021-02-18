@@ -1,33 +1,43 @@
 #' Script to create all the images in the cloudsen12 dataset
+#' human label:
+#'   0 -> clear
+#'   1 -> thick cloud
+#'   2 -> thin cloud
+#'   3 -> cloud shadow
 #' @author csaybar
 
 # 1. Libraries
 library(googleCloudStorageR)
 library(googledrive)
 library(reticulate)
+library(rasterVis)
 library(tidyverse)
+require(gridExtra)
 library(jsonlite)
 library(mapview)
 library(mapedit)
 library(raster)
 library(scales)
+library(mmand)
 library(stars)
 library(purrr)
 library(grid)
+library(Orcs)
 library(rgee)
 library(png)
 library(sf)
 library(sp)
 
-source("src/utils.R")
-ee_cloud <- import("ee_ipl_uv")
-
 # 2. Initialize Earth Engine
 ee_Initialize("csaybar", drive = TRUE, gcs = TRUE)
 
+source("src/utils.R")
+ee_cloud <- import("ee_ipl_uv")
+
+
 # 3. Load points with desired cloud average (after run point_creator.R)
 local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
-
+local_cloudsen2_points[922,]
 # 4. Classify (label) images in clear, almost clear, low-cloudy, mid-cloudy, cloudy
 # cesar <- 5851:7909
 # roy <- 7910:9968
@@ -37,15 +47,15 @@ local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
 #   select_dataset_thumbnail_creator(cloudsen2_row = cloudsen2_row)
 # }
 
-# # 5. List all the metadata
-jsonfile <- search_metajson(pattern = "metadata_0019.json", clean = FALSE)
-
-# # 6. Download all images in IRIS format :)
-dataset_creator_chips(
-  jsonfile = jsonfile,
-  #upgrade_db = FALSE,
-  output_final = "/home/csaybar/Desktop/cloudsen12"
-)
+# # # 5. List all the metadata
+# jsonfile <- search_metajson(pattern = "metadata_0019.json", clean = FALSE)
+#
+# # # 6. Download all images in IRIS format :)
+# dataset_creator_chips(
+#   jsonfile = jsonfile,
+#   #upgrade_db = FALSE,
+#   output_final = "/home/csaybar/Desktop/cloudsen12"
+# )
 
 # 7. Calibration
 # metadata_f <- list.files("metadata/",pattern = "\\.json$",full.names = TRUE)
@@ -60,16 +70,16 @@ dataset_creator_chips(
 # }
 
 # 8. Validation
-# drive_jsonfile <- drive_ls(
-#   path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK")
-# )
-#
-# set.seed(100)
-# jsonfiles <- drive_jsonfile$name[sample(length(drive_jsonfile$name), 15)]
-# for (jsonfile in jsonfiles) {
-#   jsonfile_f <- search_metajson(pattern = jsonfile, clean = FALSE)
-#   dataset_creator_chips(
-#     jsonfile = jsonfile_f,
-#     output_final = "/home/csaybar/Desktop/cloudsen12"
-#   )
-# }
+drive_jsonfile <- drive_ls(
+  path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK")
+)
+
+set.seed(100)
+jsonfiles <- drive_jsonfile$name[sample(length(drive_jsonfile$name), 15)]
+for (jsonfile in jsonfiles) {
+  jsonfile_f <- search_metajson(pattern = jsonfile, clean = FALSE)
+  dataset_creator_chips(
+    jsonfile = jsonfile_f,
+    output_final = "/home/csaybar/Desktop/cloudsen12"
+  )
+}
