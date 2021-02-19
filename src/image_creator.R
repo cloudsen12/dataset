@@ -37,7 +37,7 @@ ee_cloud <- import("ee_ipl_uv")
 
 # 3. Load points with desired cloud average (after run point_creator.R)
 local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
-local_cloudsen2_points[922,]
+
 # 4. Classify (label) images in clear, almost clear, low-cloudy, mid-cloudy, cloudy
 # cesar <- 5851:7909
 # roy <- 7910:9968
@@ -71,15 +71,18 @@ local_cloudsen2_points[922,]
 
 # 8. Validation
 drive_jsonfile <- drive_ls(
-  path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK")
+  path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK"),
+  n_max = 15
 )
 
 set.seed(100)
 jsonfiles <- drive_jsonfile$name[sample(length(drive_jsonfile$name), 15)]
+jsonfile <- "metadata_2040.json"
 for (jsonfile in jsonfiles) {
   jsonfile_f <- search_metajson(pattern = jsonfile, clean = FALSE)
   dataset_creator_chips(
     jsonfile = jsonfile_f,
+    sp_db = local_cloudsen2_points,
     output_final = "/home/csaybar/Desktop/cloudsen12"
   )
 }

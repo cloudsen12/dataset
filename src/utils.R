@@ -148,6 +148,7 @@ select_dataset_thumbnail_creator <- function(cloudsen2_row,
 #' @param output_final Folder where to save the results.
 #'
 dataset_creator_chips <- function(jsonfile,
+                                  sp_db,
                                   kernel_size = c(255, 255),
                                   output_final = "cloudsen12/") {
   point_name <- paste0("point_", gsub("[a-zA-Z]|_|\\.","", basename(jsonfile)))
@@ -166,16 +167,28 @@ dataset_creator_chips <- function(jsonfile,
   ee_point <- ee$Geometry$Point(point_utm[[1]], proj = crs_kernel)
 
   # 4. Download each image for the specified point
+  counter <- 0
+  s2_dates <- rep(NA,5)
+  s1_dates <- rep(NA,5)
+  s1_ids <- rep(NA,5)
+  s1_area_per <- rep(NA,5)
+  land_use <- rep(NA,5)
+  elevation <- rep(NA,5)
+  shadow_dir <- rep(NA,5)
   for (s2_id in s2_ids) {
     message(sprintf("Downloading: %s", s2_id))
 
     # 4.1 S2 ID and dates
     s2_img <- ee$Image(s2_id)
     s2_date <- ee_get_date_img(s2_img)[["time_start"]]
+    s2_dates[counter + 1] <- s2_date %>% as.character()
 
     # 4.2 S1 ID
     s1_id <- ee_get_s1(point = ee_point, s2_date = s2_date)
     s1_img <- ee$Image(s1_id)
+    s1_date <- ee_get_date_img(s1_img)[["time_start"]]
+    s1_ids[counter + 1] <- s1_id
+    s1_dates[counter + 1] <- s1_date %>% as.character()
 
     # 4.3 Create an Image collection with S2, S1 and cloud mask information
     s2_s1_img <- ee_merge_s2_full(s2_id, s1_id, s2_date)
@@ -195,7 +208,7 @@ dataset_creator_chips <- function(jsonfile,
       IPL_multitemporal_cloud <- ee_upl_cloud(
         sen2id = basename(s2_id),
         roi =  s2_img$geometry()
-      ) %>% ee$Image$unmask(-999)
+      ) %>% ee$Image$unmask(-99)
       s2_fullinfo <- s2_fullinfo %>%
         ee$Image$addBands(IPL_multitemporal_cloud)
     }
@@ -220,6 +233,24 @@ dataset_creator_chips <- function(jsonfile,
     final_stack <- stack(lapply(names(image_as_tibble), sf_to_stack))
     crs(final_stack) <- st_crs(crs_kernel)$proj4string
 
+    # 4.8 Add 360 if shadow direction is negative
+    final_stack[[24]] <- fix_shadow_direction(final_stack[[24]])
+
+    # 4.9 Estimate dataset_values
+    ## s1_area_per
+    s1_raster_values <- getValues(final_stack[[16]])
+    na_pixels <- sum(is.na(s1_raster_values))
+    n99_pixels <- sum(s1_raster_values == -99, na.rm = TRUE)
+    s1_area <- 100 - (na_pixels + n99_pixels)/ncell(s1_raster_values)*100
+    s1_area_per[counter + 1] <- round(s1_area, 2)
+    ## landuse
+    land_use[counter + 1] <- Modes(getValues(final_stack[[23]]))
+    ## elevation
+    elevation[counter + 1] <- round(mean(getValues(final_stack[[22]])), 2)
+    ## shadow direction
+    shadow_dir[counter + 1] <- round(mean(getValues(final_stack[[24]])), 2)
+
+
     # 4.8 Prepare folders for iris
     output_final_d <- sprintf("%s/dataset", output_final)
     output_final_folder <- sprintf("%s/dataset/%s/%s", output_final, point_name, basename(s2_id))
@@ -231,47 +262,87 @@ dataset_creator_chips <- function(jsonfile,
     dir.create(sprintf("%s/target", output_final_folder), showWarnings = FALSE, recursive = TRUE)
     dir.create(sprintf("%s/thumbnails", output_final_folder), showWarnings = FALSE, recursive = TRUE)
 
-    # Create cloud-segmentation.json (main file in iris software)
+    # 4.9 Create cloud-segmentation.json (main file in iris software)
     metadata_main <- sprintf("%s/dataset/%s/cloud_segmentation_%s.json", output_final, point_name, point_name)
-    ee_create_cloudseg(path = metadata_main)
-    lab_lab_user(path = dirname(metadata_main), point_name = point_name)
+    if (counter == 0) {
+      ee_create_cloudseg(path = metadata_main)
+    }
 
-    # 4.9 Save all features inside the input folder
+    # 4.10 Users now have userID:password (lab:lab)
+    if (counter == 0) {
+      lab_lab_user(path = dirname(metadata_main), point_name = point_name)
+    }
+
+    # 4.11 Generate a script to upload results to Google Drive database
+    if (counter == 0) {
+      generate_script(dirname(metadata_main))
+    }
+
+    # 4.12 Save all features inside the input folder
     bandnames <- c(paste0("B",1:8), "B8A", paste0("B", 9:12), "CDI", "VV", "VH", "angle", "elevation", "landuse", "cloudshadow_direction")
 
-    # 4.10 Add 360 if shadow direction is negative
-    final_stack[[24]] <- fix_shadow_direction(final_stack[[24]])
-
-    # 4.11 Save input values
+    # 4.14 Save input values
     input_data <- raster::stack(
       final_stack[[1:13]]/10000, final_stack[[14]], final_stack[[15:17]], final_stack[[22:24]]
     )
     input_spec <- sprintf("%s/input/%s.tif", output_final_folder, bandnames)
     lapply(1:20, function(x) writeRaster(input_data[[x]], input_spec[x], overwrite = TRUE))
 
-    # 4.12 Save target values
+    # 4.15 Save target values
     # 18-19 -> cmask_s2cloudness| cmask_s2cloudness_reclass (0,1)
     # 20-21 -> cmask_sen2cor | cmask_sen2cor_reclass (0,1,2)
     # 25 -> IPL_cloudmask_reclass
-    create_target_raster(final_stack, IPL_multitemporal_cloud_logical, output_final_folder)
+    create_target_raster(
+      final_stack = final_stack,
+      IPL_multitemporal_cloud_logical = IPL_multitemporal_cloud_logical,
+      output_final_folder = output_final_folder
+    )
 
-    # 4.13 Create metadata.json for each file
+    # 4.16 Create metadata.json for each file
     ee_create_metadata(
       id = basename(s2_id),
       point = c(jsonfile_r$y, jsonfile_r$x),
       path = metadata_spec
     )
 
-    # 4.14 Create a thumbnail
+    # 4.17 Create a thumbnail
     ee_generate_thumbnail(
       s2_id = s2_id,
       final_stack =  final_stack,
       crs_kernel =  crs_kernel,
       output_final_folder = output_final_folder
     )
+    counter <- counter + 1
   }
 
-  # 6. Save geometry
+  row_position <- gsub("point_", "", point_name) %>% as.numeric()
+  # point_metadata
+  df_final <- data_frame(
+    id = sprintf("%s_%02d", point_name, 1:5),
+    labeler = sp_db[row_position,]$labeler,
+    type = sp_db[row_position,]$label,
+    difficulty = NA,
+    sen2_id = s2_ids,
+    sen2_date = s2_dates,
+    sen1_id = s1_ids,
+    s1_date = s1_dates,
+    sen1_area = s1_area_per,
+    land_use = land_use,
+    elevation = elevation,
+    shadow_dir = shadow_dir,
+    split = NA,
+    state = FALSE,
+    evaluation_I = sp_db[row_position,]$validator,
+    evaluation_II = labelers_names[!(labelers_names %in% c(sp_db[row_position,]$validator, sp_db[row_position,]$labeler))],
+    evaluation_Expert = FALSE
+  )
+
+  write_csv(
+    x = df_final,
+    file = sprintf("%s/%s_metadata.csv", dirname(metadata_main), point_name)
+  )
+
+  # 5. Save geometry
   roi <- extent(final_stack[[1]]) %>%
     st_bbox() %>%
     st_as_sfc()
@@ -364,7 +435,7 @@ ee_get_s1 <- function(point, s2_date, range = 2.5) {
 ee_merge_s2_full <- function(s2_id, s1_id, s2_date) {
   # 1. Define all the images that will be inside input.tif (ImageCollection)
   ## S1
-  s1_grd <- ee$Image(s1_id)
+  s1_grd <- ee$Image(s1_id)$unmask(-99)
   ## S2-level 2A (sen2cor)
   s2_2a <- ee$Image(sprintf("COPERNICUS/S2_SR/%s", basename(s2_id)))
   ## S2-level 1C
@@ -1011,9 +1082,6 @@ create_target_raster <- function(final_stack, IPL_multitemporal_cloud_logical, o
   }
 }
 
-
-
-
 #' Create and save a thumbnail
 #' @noRd
 ee_generate_thumbnail <- function(s2_id, final_stack, crs_kernel, output_final_folder) {
@@ -1086,48 +1154,45 @@ dilate_raster <- function(label_raster) {
   final_r
 }
 
-#' Generate previews (in the 5 images)
-#' @noRd
-generate_preview <- function() {
-
-}
-
-
 #' Generate a preview in a specific image
 #' @noRd
 generate_spplot <-function(rgb, label_raster, output = "comparison.svg") {
   # Convert RGB to use with spplot
   lout <- rgb2spLayout(rgb)
 
-  # raster label to factor
+  # raster label remove clear
   label_raster[label_raster == 0] = NA
-  label_raster_f <- as.factor(label_raster)
 
-  # Extract attribute table
-  rat <- levels(label_raster_f)[[1]]
+  # all is NA?
+  rat <- nrow(levels(as.factor(label_raster))[[1]])
 
-  # Set custom breaks
-  rat[["classes"]] <- c("thick", "thin", "cloud")
+  # create viz folder
+  dir.create(path = "viz", showWarnings = FALSE)
 
-  # Add back label_raster_f
-  levels(label_raster_f) <- rat
-
-  # label spplot
-  spplot1 <- spplot(
-    obj = label_raster,
-    sp.layout = list(
-      list("sp.points",centroid_pt,cex = 0),
-      lout
-    ),
-    par.settings = list(axis.line = list(col = "transparent")),
-    colorkey=FALSE
-  )
+  if (rat > 0) {
+    # label spplot
+    ## FFFFFF <- Clear (0)
+    ## FFFF00 <- Thick cloud (1)
+    ## 00FF00 <- Thin cloud (2)
+    ## FF0000 <- Shadow (3)
+    spplot1 <- spplot(
+      obj = label_raster,
+      sp.layout = list(
+        lout
+      ),
+      col.regions = c("#FFFF00", "#00FF00", "#FF0000"),
+      at = c(0,1,2,3,4),
+      par.settings = list(axis.line = list(col = "transparent")),
+      colorkey=FALSE
+    )
+  }
 
   fake_r <- label_raster
   fake_r[fake_r >= 0] = NA
   fake_r[1,1] = 0
+
   # RGB spplot
-  spplot1 <- spplot(
+  spplot2 <- spplot(
     obj = fake_r,
     sp.layout = lout,
     cex = 0,
@@ -1135,7 +1200,171 @@ generate_spplot <-function(rgb, label_raster, output = "comparison.svg") {
     colorkey=FALSE,
     alpha.regions = 0
   )
-  svg(output)
-  grid.arrange(spplot1, spplot2, nrow = 1)
+  if (rat > 0) {
+    svg(output, width = 7*2, height = 7*2)
+    grid.arrange(spplot2, spplot1, nrow = 1)
+  } else {
+    svg(output, width = 7*2, height = 7*2)
+    grid.arrange(spplot2, spplot2, nrow=1)
+  }
   on.exit(dev.off())
+}
+
+#' Hex color (manual.png) to raster
+number_to_hex <- function(stack_color, raster_ref) {
+  raster_ref_f <- raster_ref
+  stk_r <- stack(stack_color)
+
+  #FFFFFF <- Clear (0)
+  #FFFF00 <- Thick cloud (1)
+  #00FF00 <- Thin cloud (2)
+  #FF0000 <- Shadow (3)
+  color_values <- rgb(stk_r[],maxColorValue = 255)
+  color_values[color_values == "#FFFFFF"] <- 0
+  color_values[color_values == "#FFFF00"] <- 1
+  color_values[color_values == "#00FF00"] <- 2
+  color_values[color_values == "#FF0000"] <- 3
+  color_values <- as.numeric(color_values)
+
+  raster_ref_f[] <- color_values
+  raster_ref_f
+}
+
+#' Generate previews (in the 5 images)
+#' @noRd
+upload_results <- function(folder_id, pnt_name) {
+
+  # files Google Drive ID
+  files_points <- googledrive::drive_ls(
+    path = as_id(folder_id)
+  )
+
+  # List files (Get SENTINEL_2 ID)
+  directories <- list.files()
+  directories_sen2ids <- directories[!grepl("iris|viz", directories)]
+  directories_sen2ids <- directories_sen2ids[dir.exists(directories_sen2ids)]
+
+  # Get the point number
+  point_name <- gsub("\\.gpkg$", "", directories[grepl("gpkg", directories)])
+
+  if (point_name  != pnt_name) {
+    stop("The Google Drive folder ID doesn't match with the point name.")
+  }
+
+  # Reference raster (base_raster)
+  reference_raster <- raster(paste0(directories_sen2ids[1],"/input/B1.tif"))
+
+
+  for (directory in directories_sen2ids) {
+
+    # From png to raster
+    high_labeling_r <- number_to_hex(
+      stack_color = paste0(directory,"/target/manual.png"),
+      raster_ref = reference_raster
+    )
+
+    # Dilate raster 3x3
+    high_labeling_r_dilate <- dilate_raster(high_labeling_r)
+    tmp_r <- paste0(tempdir(), "/manual.tif")
+    writeRaster(x = high_labeling_r_dilate, filename = tmp_r, overwrite = TRUE)
+
+    # Upload Raster to Google Drive
+    folder_gd_img <- files_points[files_points$name %in% directory,]$id
+    folder_gd_img_target <- googledrive::drive_ls(
+      path = as_id(folder_gd_img)
+    )
+    target_ID <- folder_gd_img_target[folder_gd_img_target$name == "target", ]$id
+    drive_upload(
+      media = tmp_r,
+      overwrite = TRUE,
+      path = as_id(target_ID),
+      verbose = FALSE
+    )
+  }
+
+  # point.iris ID folder
+  point_iris <- files_points[grepl("iris", files_points$name), ]$id
+
+  # Create zip file
+  zip(
+    zipfile = paste0(point_name, ".zip"),
+    files = list.files(
+      path = paste0(point_name, ".iris/segmentation"),
+      recursive = TRUE,
+      full.names = TRUE
+    ),
+    flags = "-q"
+  )
+
+  # Upload zip file
+  drive_upload(
+    media = paste0(point_name, ".zip"),
+    overwrite = TRUE,
+    path = as_id(folder_id),
+    verbose = FALSE
+  )
+}
+
+#' generate plots
+#' @noRd
+generate_preview <- function() {
+  # List files (Get SENTINEL_2 ID)
+  directories <- list.files()
+  directories_sen2ids <- directories[!grepl("iris", directories)]
+  directories_sen2ids <- directories_sen2ids[dir.exists(directories_sen2ids)]
+  directories_sen2ids <- directories_sen2ids[!directories_sen2ids == "viz"]
+
+  # Create Viz folder
+  dir.create(path = "viz", showWarnings = FALSE)
+
+  # Get the point number
+  for (directory in directories_sen2ids) {
+    # RGB -> read STACK RasterStack
+    rgb <- stack(sprintf(paste0(directory, "/input/B%01d.tif"), 4:2))
+
+    # from .png to rasterlayer
+    high_labeling_r <- number_to_hex(
+      stack_color = paste0(directory,"/target/manual.png"),
+      raster_ref = rgb[[1]]
+    ) %>% dilate_raster()
+
+    # Generate .svg
+    generate_spplot(
+      rgb = rgb,
+      label_raster = high_labeling_r,
+      output = sprintf("viz/%s.svg", directory)
+    )
+  }
+}
+
+#' Generate R script
+generate_script <- function(path) {
+  fileConn <- file(paste0(path, "/Run.R"))
+  writeLines(
+    text = c(
+      "library(googledrive)",
+      "library(tidyverse)",
+      "library(gridExtra)",
+      "library(raster)",
+      "library(mmand)",
+      "library(Orcs)",
+      "",
+      "source(\"https://gist.githubusercontent.com/csaybar/8a4487f1fd1c488be3dce0b60f7f0ce8/raw/5353cf8f5cc0bb5a76375b4895bd3ad4dd71b986/cloudsen12_functions.R\")",
+      "",
+      "# Generate svg for each image",
+      "generate_preview()",
+      "",
+      "# Upload your results to Google Drive",
+      "upload_results()"
+    ),
+    con =  fileConn
+  )
+  close(fileConn)
+}
+
+# Mode in R
+Modes <- function(x) {
+  ux <- unique(x)
+  tab <- tabulate(match(x, ux))
+  ux[tab == max(tab)]
 }
