@@ -316,6 +316,7 @@ dataset_creator_chips <- function(jsonfile,
   }
 
   row_position <- gsub("point_", "", point_name) %>% as.numeric()
+  labelers_names <- c("Jhomira", "Fernando", "Eduardo")
   # point_metadata
   df_final <- data_frame(
     id = sprintf("%s_%02d", point_name, 1:5),
