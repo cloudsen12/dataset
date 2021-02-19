@@ -288,6 +288,9 @@ dataset_creator_chips <- function(jsonfile,
     input_spec <- sprintf("%s/input/%s.tif", output_final_folder, bandnames)
     lapply(1:20, function(x) writeRaster(input_data[[x]], input_spec[x], overwrite = TRUE))
 
+    if (maxValue(final_stack[[14]] == -99)) {
+      stop("Sentinel2 with NaN data")
+    }
     # 4.15 Save target values
     # 18-19 -> cmask_s2cloudness| cmask_s2cloudness_reclass (0,1)
     # 20-21 -> cmask_sen2cor | cmask_sen2cor_reclass (0,1,2)
@@ -436,13 +439,14 @@ ee_get_s1 <- function(point, s2_date, range = 2.5) {
 ee_merge_s2_full <- function(s2_id, s1_id, s2_date) {
   # 1. Define all the images that will be inside input.tif (ImageCollection)
   ## S1
-  s1_grd <- ee$Image(s1_id)$unmask(-99)
+  s1_grd <- ee$Image(s1_id)$unmask(-99, sameFootprint = F)
   ## S2-level 2A (sen2cor)
   s2_2a <- ee$Image(sprintf("COPERNICUS/S2_SR/%s", basename(s2_id)))
   ## S2-level 1C
   s2_1c <- ee$Image(sprintf("COPERNICUS/S2/%s", basename(s2_id)))
   ### Estimate CDI
-  s2_cdi <- ee$Algorithms$Sentinel2$CDI(s2_1c)
+  s2_cdi <- ee$Algorithms$Sentinel2$CDI(s2_1c) %>%
+    ee$Image$unmask(-99, sameFootprint = F)
   ## DEM data (MERIT)
   extra_dem <- cloudsen12_dem()
   ## LandUSE data (copernicus)
@@ -782,6 +786,15 @@ sen2_id <- c(
   "20200619T181919_20200619T181958_T12UVU",
   "20200712T130251_20200712T130252_T24LVQ",
   "20200721T180921_20200721T181627_T12TWR"
+)
+
+# Evaluation points
+cloudsen12_point_validation <- c(
+  "metadata_1382.json", "metadata_0299.json", "metadata_0466.json",
+  "metadata_0470.json", "metadata_0503.json", "metadata_0823.json",
+  "metadata_0838.json", "metadata_0903.json", "metadata_0908.json",
+  "metadata_0919.json", "metadata_0985.json", "metadata_0995.json",
+  "metadata_1004.json", "metadata_1031.json", "metadata_0183.json"
 )
 
 # detect_points <- function(x) {
@@ -1350,12 +1363,14 @@ generate_script <- function(path) {
       "library(mmand)",
       "library(Orcs)",
       "",
-      "source(\"https://gist.githubusercontent.com/csaybar/8a4487f1fd1c488be3dce0b60f7f0ce8/raw/5353cf8f5cc0bb5a76375b4895bd3ad4dd71b986/cloudsen12_functions.R\")",
+      "source(\"https://gist.githubusercontent.com/csaybar/8a4487f1fd1c488be3dce0b60f7f0ce8/raw/fbd72e0156ace2e0346c1ecab09d4af1f56e693a/cloudsen12_functions.R\")",
       "",
       "# Generate svg for each image",
       "generate_preview()",
       "",
       "# Upload your results to Google Drive",
+      "httr::set_config(httr::config( ssl_verifypeer = 0L))",
+      "httr::set_config(httr::config(http_version = 0))",
       "upload_results()"
     ),
     con =  fileConn

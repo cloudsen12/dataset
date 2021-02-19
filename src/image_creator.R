@@ -70,19 +70,13 @@ local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
 # }
 
 # 8. Validation
-drive_jsonfile <- drive_ls(
-  path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK"),
-  n_max = 15
-)
-
-set.seed(100)
-jsonfiles <- drive_jsonfile$name[sample(length(drive_jsonfile$name), 15)]
-jsonfile <- "metadata_2040.json"
-for (jsonfile in jsonfiles) {
-  jsonfile_f <- search_metajson(pattern = jsonfile, clean = FALSE)
-  dataset_creator_chips(
-    jsonfile = jsonfile_f,
-    sp_db = local_cloudsen2_points,
-    output_final = "/home/csaybar/Desktop/cloudsen12"
-  )
-}
+# httr::set_config(httr::config(http_version = 0))
+# jsonfiles <- cloudsen12_point_validation[5:15]
+# for (jsonfile in jsonfiles) {
+#   jsonfile_f <- try(search_metajson(pattern = jsonfile, clean = FALSE))
+#   dataset_creator_chips(
+#     jsonfile = jsonfile_f,
+#     sp_db = local_cloudsen2_points,
+#     output_final = "/home/csaybar/Desktop/cloudsen12"
+#   )
+# }
