@@ -1363,7 +1363,7 @@ generate_script <- function(path) {
       "library(mmand)",
       "library(Orcs)",
       "",
-      "source(\"https://gist.githubusercontent.com/csaybar/8a4487f1fd1c488be3dce0b60f7f0ce8/raw/3bf61cdb718089dfb3586cc9b18d7b8f54fbc6d0/cloudsen12_functions.R\")",
+      "source(\"https://gist.githubusercontent.com/csaybar/daa1a877f3d1703b61846603e986b14c/raw/db1701dc9fb459c300dd473044b25147163e493e/demo.R\")",
       "",
       "# Generate svg for each image",
       "generate_preview()",
@@ -1374,7 +1374,7 @@ generate_script <- function(path) {
       "upload_results()",
       "",
       "# Download labels :)",
-      "download_labelers()"
+      "download_labels()"
     ),
     con =  fileConn
   )
