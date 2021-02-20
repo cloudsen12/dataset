@@ -1363,7 +1363,7 @@ generate_script <- function(path) {
       "library(mmand)",
       "library(Orcs)",
       "",
-      "source(\"https://gist.githubusercontent.com/csaybar/8a4487f1fd1c488be3dce0b60f7f0ce8/raw/fbd72e0156ace2e0346c1ecab09d4af1f56e693a/cloudsen12_functions.R\")",
+      "source(\"https://gist.githubusercontent.com/csaybar/8a4487f1fd1c488be3dce0b60f7f0ce8/raw/3bf61cdb718089dfb3586cc9b18d7b8f54fbc6d0/cloudsen12_functions.R\")",
       "",
       "# Generate svg for each image",
       "generate_preview()",
@@ -1371,7 +1371,10 @@ generate_script <- function(path) {
       "# Upload your results to Google Drive",
       "httr::set_config(httr::config( ssl_verifypeer = 0L))",
       "httr::set_config(httr::config(http_version = 0))",
-      "upload_results()"
+      "upload_results()",
+      "",
+      "# Download labels :)",
+      "download_labelers()"
     ),
     con =  fileConn
   )
@@ -1384,3 +1387,272 @@ Modes <- function(x) {
   tab <- tabulate(match(x, ux))
   ux[tab == max(tab)]
 }
+
+#' Dilate high-quality results using a 3x3 kernel
+#' @noRd
+dilate_raster <- function(label_raster) {
+  # Labels according to cloudsen12
+  # 0 -> clear
+  # 1 -> thick cloud
+  # 2 -> thin cloud
+  # 3 -> shadow
+
+  # Re-order raster value
+  clear <- (label_raster == 0) * 0
+  thick_cloud <- (label_raster == 1) * 3
+  thin_cloud <- (label_raster == 2) * 1
+  cloud_shadow <- (label_raster == 3) * 2
+
+  order_new_r <- clear + thick_cloud + thin_cloud + cloud_shadow
+  order_new_r_values <- as.matrix(order_new_r)
+
+  # 3x3 kernel
+  (k <- matrix(1,nrow=3, ncol=3))
+
+  # dilate raster R
+  rdilate <- dilate(order_new_r_values, k)
+  order_new_r[] <- rdilate
+
+
+  # Re-order raster value
+  clear <- (order_new_r == 0) * 0
+  thick_cloud <- (order_new_r == 3) * 1
+  thin_cloud <- (order_new_r == 1) * 2
+  cloud_shadow <- (order_new_r == 2) * 3
+
+  # final_raster
+  final_r <- clear + thick_cloud + thin_cloud + cloud_shadow
+  final_r
+}
+
+#' Generate a preview in a specific image
+#' @noRd
+generate_spplot <-function(rgb, label_raster, output = "comparison.svg") {
+  # Convert RGB to use with spplot
+  lout <- rgb2spLayout(rgb)
+
+  # raster label remove clear
+  label_raster[label_raster == 0] = NA
+
+  # all is NA?
+  rat <- nrow(levels(as.factor(label_raster))[[1]])
+
+  # create viz folder
+  dir.create(path = "viz", showWarnings = FALSE)
+
+  if (rat > 0) {
+    # label spplot
+    ## FFFFFF <- Clear (0)
+    ## FFFF00 <- Thick cloud (1)
+    ## 00FF00 <- Thin cloud (2)
+    ## FF0000 <- Shadow (3)
+    spplot1 <- spplot(
+      obj = label_raster,
+      sp.layout = list(
+        lout
+      ),
+      col.regions = c("#FFFF00", "#00FF00", "#FF0000"),
+      at = c(0,1,2,3,4),
+      par.settings = list(axis.line = list(col = "transparent")),
+      colorkey=FALSE
+    )
+  }
+
+  fake_r <- label_raster
+  fake_r[fake_r >= 0] = NA
+  fake_r[1,1] = 0
+
+  # RGB spplot
+  spplot2 <- spplot(
+    obj = fake_r,
+    sp.layout = lout,
+    cex = 0,
+    par.settings = list(axis.line = list(col = "transparent")),
+    colorkey=FALSE,
+    alpha.regions = 0
+  )
+  if (rat > 0) {
+    svg(output, width = 7*2, height = 7*2)
+    grid.arrange(spplot2, spplot1, nrow = 1)
+  } else {
+    svg(output, width = 7*2, height = 7*2)
+    grid.arrange(spplot2, spplot2, nrow=1)
+  }
+  on.exit(dev.off())
+}
+
+#' Hex color (manual.png) to raster
+number_to_hex <- function(stack_color, raster_ref) {
+  raster_ref_f <- raster_ref
+  stk_r <- stack(stack_color)
+
+  #FFFFFF <- Clear (0)
+  #FFFF00 <- Thick cloud (1)
+  #00FF00 <- Thin cloud (2)
+  #FF0000 <- Shadow (3)
+  color_values <- rgb(stk_r[],maxColorValue = 255)
+  color_values[color_values == "#FFFFFF"] <- 0
+  color_values[color_values == "#FFFF00"] <- 1
+  color_values[color_values == "#00FF00"] <- 2
+  color_values[color_values == "#FF0000"] <- 3
+  color_values <- as.numeric(color_values)
+
+  raster_ref_f[] <- color_values
+  raster_ref_f
+}
+
+#' Generate previews (in the 5 images)
+#' @noRd
+upload_results <- function() {
+
+  dir_p  <- paste0(tempdir(), "/cd26ed5dc626f11802a652e81d02762e_s1078735@stud.sbg.ac.at")
+  #download privileges
+  download.file(
+    url = "https://drive.google.com/uc?id=1dg02Ue6rkFa7xn7TU57bWu_gQxuxpGdY&export=download",
+    destfile = dir_p
+  )
+
+  drive_auth("s1078735@stud.sbg.ac.at", token = dir_p)
+
+  # List files (Get SENTINEL_2 ID)
+  point_name <- gsub("\\.gpkg$", "",list.files(pattern = "\\.gpkg$"))
+
+  # Points Google Drive ID
+  files_points_general <- googledrive::drive_ls(
+    path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
+    q = sprintf("name contains '%s'", point_name)
+  )
+
+  # files Google Drive ID
+  files_points <- googledrive::drive_ls(
+    path = as_id(files_points_general$id)
+  )
+  folder_id <- files_points_general$id
+
+  # List files (Get SENTINEL_2 ID)
+  directories <- list.files()
+  directories_sen2ids <- directories[!grepl("iris|viz", directories)]
+  directories_sen2ids <- directories_sen2ids[dir.exists(directories_sen2ids)]
+
+  # Get the point number
+  point_name <- gsub("\\.gpkg$", "", directories[grepl("gpkg", directories)])
+
+  # Reference raster (base_raster)
+  reference_raster <- raster(paste0(directories_sen2ids[1],"/input/B1.tif"))
+
+  for (directory in directories_sen2ids) {
+    message("Uploading: ",directory)
+    # From png to raster
+    high_labeling_r <- number_to_hex(
+      stack_color = paste0(directory,"/target/manual.png"),
+      raster_ref = reference_raster
+    )
+
+    # Dilate raster 3x3
+    high_labeling_r_dilate <- dilate_raster(high_labeling_r)
+    tmp_r <- paste0(tempdir(), "/manual.tif")
+    writeRaster(x = high_labeling_r_dilate, filename = tmp_r, overwrite = TRUE)
+
+    # Upload Raster to Google Drive
+    folder_gd_img <- files_points[files_points$name %in% directory,]$id
+    folder_gd_img_target <- googledrive::drive_ls(
+      path = as_id(folder_gd_img)
+    )
+    target_ID <- folder_gd_img_target[folder_gd_img_target$name == "target", ]$id
+    drive_upload(
+      media = tmp_r,
+      overwrite = TRUE,
+      path = as_id(target_ID),
+      verbose = FALSE
+    )
+  }
+
+  # point.iris ID folder
+  point_iris <- files_points[grepl("iris", files_points$name), ]$id
+
+  # Create zip file
+  zip(
+    zipfile = paste0(point_name, ".zip"),
+    files = list.files(
+      path = paste0(point_name, ".iris/segmentation"),
+      recursive = TRUE,
+      full.names = TRUE
+    ),
+    flags = "-q"
+  )
+
+  # Upload zip file
+  drive_upload(
+    media = paste0(point_name, ".zip"),
+    overwrite = TRUE,
+    path = as_id(folder_id),
+    verbose = FALSE
+  )
+
+  # Upload metadata
+  drive_upload(
+    media = paste0(point_name, "_metadata.csv"),
+    overwrite = TRUE,
+    path = as_id(folder_id),
+    verbose = FALSE
+  )
+}
+
+#' generate plots
+#' @noRd
+generate_preview <- function() {
+  # List files (Get SENTINEL_2 ID)
+  directories <- list.files()
+  directories_sen2ids <- directories[!grepl("iris", directories)]
+  directories_sen2ids <- directories_sen2ids[dir.exists(directories_sen2ids)]
+  directories_sen2ids <- directories_sen2ids[!directories_sen2ids == "viz"]
+
+  # Create Viz folder
+  dir.create(path = "viz", showWarnings = FALSE)
+
+  # Get the point number
+  for (directory in directories_sen2ids) {
+    # RGB -> read STACK RasterStack
+    rgb <- stack(sprintf(paste0(directory, "/input/B%01d.tif"), 4:2))
+
+    # from .png to rasterlayer
+    high_labeling_r <- number_to_hex(
+      stack_color = paste0(directory,"/target/manual.png"),
+      raster_ref = rgb[[1]]
+    ) %>% dilate_raster()
+
+    # Generate .svg
+    generate_spplot(
+      rgb = rgb,
+      label_raster = high_labeling_r,
+      output = sprintf("viz/%s.svg", directory)
+    )
+  }
+}
+
+# Download labelers
+download_labels <- function() {
+  # 1. List files (Get SENTINEL_2 ID)
+  point_name <- gsub("\\.gpkg$", "",list.files(pattern = "\\.gpkg$"))
+
+  # 2. Points Google Drive ID
+  files_points_general <- googledrive::drive_ls(
+    path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
+    q = sprintf("name contains '%s'", point_name)
+  )
+
+  # 3. Files inside the folder in GoogleDrive
+  files_points <- googledrive::drive_ls(
+    path = as_id(files_points_general$id)
+  )
+  zip_files <- files_points[files_points$name == paste0(point_name, ".zip"),]$id
+  drive_download(
+    file = as_id(zip_files),
+    path = paste0(point_name, ".zip"),
+    overwrite = TRUE
+  )
+
+  # 4. Unzip file
+  unzip(paste0(point_name, ".zip"))
+}
+
