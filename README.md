@@ -1,8 +1,7 @@
-https://drive.google.com/folderview?id=1e2UqLDcTzHyE8aGkQb-PMbpTqX877DwE
+Official folder link:
 
-DRIVE12MS FINAL: final/
+https://drive.google.com/drive/u/1/folders/1aTPIZ974zvtti6a02eiMyZaIf_Rp8QEc
 
-DRIVE12MS METADATA: metadata_raw/
 
 
 
