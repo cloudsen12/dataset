@@ -1658,7 +1658,7 @@ download_labels <- function() {
 
 
 # Full download images
-download_all_images <- function(points, local_cloudsen2_points) {
+download_all_images <- function(points, local_cloudsen2_points, output_final) {
   for (index in points) {
     message("Downloading: Point_", index)
     metadata_json <- sprintf("metadata_%04d.json", index)
@@ -1668,7 +1668,7 @@ download_all_images <- function(points, local_cloudsen2_points) {
         dataset_creator_chips(
           jsonfile = jsonfile,
           sp_db = local_cloudsen2_points,
-          output_final = "/home/csaybar/Desktop/cloudsen12"
+          output_final = output_final
         )
       )
     }
