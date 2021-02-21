@@ -1,9 +1,11 @@
 #' Script to create all the images in the cloudsen12 dataset
+#'
 #' human label:
 #'   0 -> clear
 #'   1 -> thick cloud
 #'   2 -> thin cloud
 #'   3 -> cloud shadow
+#'
 #' @author csaybar
 
 # 1. Libraries
@@ -42,41 +44,7 @@ local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
 # cesar <- 5851:7909
 # roy <- 7910:9968
 # prudencio <- 9969:12023
-# for (index in cesar) {
-#   cloudsen2_row <- local_cloudsen2_points[index,]
-#   select_dataset_thumbnail_creator(cloudsen2_row = cloudsen2_row)
-# }
+select_dataset_thumbnail_creator_batch(cesar, local_cloudsen2_points)
 
-# # # 5. List all the metadata
-# jsonfile <- search_metajson(pattern = "metadata_0019.json", clean = FALSE)
-#
-# # # 6. Download all images in IRIS format :)
-# dataset_creator_chips(
-#   jsonfile = jsonfile,
-#   #upgrade_db = FALSE,
-#   output_final = "/home/csaybar/Desktop/cloudsen12"
-# )
-
-# 7. Calibration
-# metadata_f <- list.files("metadata/",pattern = "\\.json$",full.names = TRUE)
-# detected_points_t <- sapply(metadata_f, detect_points)
-# detected_points <- names(detected_points_t[detected_points_t >= 1])
-# for (detected_point in detected_points) {
-#   dataset_creator_chips(
-#     jsonfile = detected_point,
-#     #upgrade_db = FALSE,
-#     output_final = "/home/csaybar/Desktop/cloudsen12"
-#   )
-# }
-
-# 8. Validation
-# httr::set_config(httr::config(http_version = 0))
-# jsonfiles <- cloudsen12_point_validation[5:15]
-# for (jsonfile in jsonfiles) {
-#   jsonfile_f <- try(search_metajson(pattern = jsonfile, clean = FALSE))
-#   dataset_creator_chips(
-#     jsonfile = jsonfile_f,
-#     sp_db = local_cloudsen2_points,
-#     output_final = "/home/csaybar/Desktop/cloudsen12"
-#   )
-# }
+# # # 5. Download all images
+download_all_images(1:1500, local_cloudsen2_points)

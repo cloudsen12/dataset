@@ -175,6 +175,7 @@ dataset_creator_chips <- function(jsonfile,
   land_use <- rep(NA,5)
   elevation <- rep(NA,5)
   shadow_dir <- rep(NA,5)
+
   for (s2_id in s2_ids) {
     message(sprintf("Downloading: %s", s2_id))
 
@@ -208,7 +209,7 @@ dataset_creator_chips <- function(jsonfile,
       IPL_multitemporal_cloud <- ee_upl_cloud(
         sen2id = basename(s2_id),
         roi =  s2_img$geometry()
-      ) %>% ee$Image$unmask(-99)
+      ) %>% ee$Image$unmask(-99, sameFootprint = FALSE)
       s2_fullinfo <- s2_fullinfo %>%
         ee$Image$addBands(IPL_multitemporal_cloud)
     }
@@ -224,6 +225,11 @@ dataset_creator_chips <- function(jsonfile,
                              projection = crs_kernel,
                              scale = 10) %>%
       ee$FeatureCollection$getInfo()
+
+    if (length(s2_img_array$features) == 0) {
+      stop("The datacube doesn't have values ... Probably a bug in S1")
+    }
+
     extract_fn <- function(x) as.numeric(unlist(s2_img_array$features[[1]]$properties[x]))
     image_as_df <- do.call(cbind,lapply(band_names, extract_fn))
     colnames(image_as_df) <- band_names
@@ -352,6 +358,9 @@ dataset_creator_chips <- function(jsonfile,
     st_as_sfc()
   st_crs(roi) <- crs_kernel
   write_sf(roi, sprintf("%s/%s.gpkg", dirname(output_final_folder), point_name))
+
+  # Return is everything is fine :)
+  invisible(TRUE)
 }
 
 #' Function to create metadata (i.e. metadata_1500.json)
@@ -709,30 +718,21 @@ cloudsen12_lc <- function() {
 
 #' Search metajson in roy folder :)
 #' @noRd
-search_metajson <- function(pattern, clean = TRUE) {
-  drive <- sprintf("%s/drive_dataset.Rdata", tempdir())
-
-  if (clean) {
-    suppressWarnings(file.remove(drive))
+search_metajson <- function(pattern) {
+  # Search metadata
+  drive_jsonfile <- drive_ls(
+    path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK"),
+    q = sprintf("name contains '%s'", pattern)
+  )
+  # Metadata no found
+  if (nrow(drive_jsonfile) == 0) {
+    stop("metadata no found")
   }
-
-  if (!file.exists(drive)) {
-    # 5. List all the metadata
-    drive_jsonfile <- drive_ls(
-      path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK")
-    )
-    save(drive_jsonfile, file = drive)
-  } else {
-    load(drive)
-  }
-  drive_jsonfile_s <- drive_jsonfile[drive_jsonfile$name %in% pattern, ]
-  if (nrow(drive_jsonfile_s) == 0) {
-    stop("no metadata found")
-  }
+  #
   jsonfile <- try(
     drive_download(
-      file = drive_jsonfile_s,
-      path = paste0(tempdir(),"/", drive_jsonfile_s$name),
+      file = drive_jsonfile,
+      path = paste0(tempdir(),"/", drive_jsonfile$name),
       overwrite = TRUE
     )
   )
@@ -740,14 +740,14 @@ search_metajson <- function(pattern, clean = TRUE) {
   while((class(jsonfile)[1] == "try-error") | stop_5 == 5) {
     jsonfile <- try(
       drive_download(
-        file = drive_jsonfile_s,
-        path = paste0(tempdir(),"/", drive_jsonfile_s$name),
+        file = drive_jsonfile,
+        path = paste0(tempdir(),"/", drive_jsonfile$name),
         overwrite = TRUE
       )
     )
     stop_5 = stop_5 + 1
   }
-  paste0(tempdir(),"/", drive_jsonfile_s$name)
+  paste0(tempdir(),"/", drive_jsonfile$name)
 }
 
 
@@ -1656,3 +1656,29 @@ download_labels <- function() {
   unzip(paste0(point_name, ".zip"))
 }
 
+
+# Full download images
+download_all_images <- function(points, local_cloudsen2_points) {
+  for (index in points) {
+    message("Downloading: Point_", index)
+    metadata_json <- sprintf("metadata_%04d.json", index)
+    jsonfile <- try(search_metajson(pattern = metadata_json))
+    if (class(jsonfile) != "try-error") {
+      results <- try(
+        dataset_creator_chips(
+          jsonfile = jsonfile,
+          sp_db = local_cloudsen2_points,
+          output_final = "/home/csaybar/Desktop/cloudsen12"
+        )
+      )
+    }
+  }
+}
+
+# Full download image thumbnails
+select_dataset_thumbnail_creator_batch <- function(points, local_cloudsen2_points) {
+  for (index in points) {
+    cloudsen2_row <- local_cloudsen2_points[index,]
+    select_dataset_thumbnail_creator(cloudsen2_row = cloudsen2_row)
+  }
+}
