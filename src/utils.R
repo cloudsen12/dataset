@@ -296,7 +296,7 @@ dataset_creator_chips <- function(jsonfile,
 
     # B10 threshold
     input_spec_b10 <- sprintf("%s/input/%s.tif", output_final_folder, "B10_threshold")
-    writeRaster((input_data[[11]] > 0.025), input_spec_b10)
+    writeRaster((input_data[[11]] > 0.03), input_spec_b10)
 
     if (maxValue(final_stack[[14]] == -99)) {
       stop("Sentinel2 with NaN data")
