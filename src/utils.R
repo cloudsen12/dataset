@@ -296,7 +296,7 @@ dataset_creator_chips <- function(jsonfile,
 
     # B10 threshold
     input_spec_b10 <- sprintf("%s/input/%s.tif", output_final_folder, "B10_threshold")
-    writeRaster((input_data[[11]] > 0.03), input_spec_b10)
+    writeRaster((input_data[[11]] > 0.03), input_spec_b10, overwrite = TRUE)
 
     if (maxValue(final_stack[[14]] == -99)) {
       stop("Sentinel2 with NaN data")
@@ -1132,7 +1132,7 @@ ee_generate_thumbnail <- function(s2_id, final_stack, crs_kernel, output_final_f
   )
 
   # Save thumbnail tif
-  writeRaster(s2_img432, sprintf("%s/thumbnails/thumbnail.tif", output_final_folder))
+  writeRaster(s2_img432, sprintf("%s/thumbnails/thumbnail.tif", output_final_folder), overwrite = TRUE)
 
   # Save thumbnail png
   png(sprintf("%s/thumbnails/thumbnail.png", output_final_folder), 1021, 1021)
