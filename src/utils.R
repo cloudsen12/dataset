@@ -276,7 +276,7 @@ dataset_creator_chips <- function(jsonfile,
 
     # 4.10 Users now have userID:password (lab:lab)
     if (counter == 0) {
-      lab_lab_user(path = dirname(metadata_main), point_name = point_name)
+       # lab_lab_user(path = dirname(metadata_main), point_name = point_name)
     }
 
     # 4.11 Generate a script to upload results to Google Drive database
@@ -293,6 +293,10 @@ dataset_creator_chips <- function(jsonfile,
     )
     input_spec <- sprintf("%s/input/%s.tif", output_final_folder, bandnames)
     lapply(1:20, function(x) writeRaster(input_data[[x]], input_spec[x], overwrite = TRUE))
+
+    # B10 threshold
+    input_spec_b10 <- sprintf("%s/input/%s.tif", output_final_folder, "B10_threshold")
+    writeRaster((input_data[[11]] > 0.25), input_spec_b10)
 
     if (maxValue(final_stack[[14]] == -99)) {
       stop("Sentinel2 with NaN data")
@@ -535,6 +539,7 @@ ee_create_cloudseg <- function(path) {
         B8A = "{id}/input/B8A.tif",
         B9 = "{id}/input/B9.tif",
         B10 = "{id}/input/B10.tif",
+        B10_threshold = "{id}/input/B10_threshold.tif",
         B11 = "{id}/input/B11.tif",
         B12 = "{id}/input/B12.tif",
         CDI = "{id}/input/CDI.tif",
@@ -1099,19 +1104,35 @@ create_target_raster <- function(final_stack, IPL_multitemporal_cloud_logical, o
 #' Create and save a thumbnail
 #' @noRd
 ee_generate_thumbnail <- function(s2_id, final_stack, crs_kernel, output_final_folder) {
+  # Get area stk - polygon
+  extent_stk <- extent(final_stack) %>%
+    as("SpatialPolygons") %>%
+    st_as_sfc()
+  st_crs(extent_stk) <- crs_kernel
+
+  # Double - polygon
+  thumbnail_buffer <- st_buffer(
+    x = st_centroid(extent_stk),
+    dist = 10 * 510,
+    endCapStyle = "SQUARE",
+    joinStyle = "BEVEL"
+  )
+
+  # Download thumbnail
   s2_img432 <- ee_as_raster(
-    image = ee$Image(s2_id)$select(c("B4","B3","B2")),
-    scale = 500,
+    image = ee$Image(s2_id)$select(c("B4","B3","B2"))$unitScale(0, 10000)$multiply(255)$toByte(),
+    scale = 10,
+    region = sf_as_ee(thumbnail_buffer),
     quiet = TRUE
   )
-  roi <- extent(final_stack[[1]]) %>%
-    st_bbox() %>%
-    st_as_sfc()
-  st_crs(roi) <- crs_kernel
-  png(sprintf("%s/thumbnails/thumbnail.png", output_final_folder), 1000, 1000)
-  max_value <- max(maxValue(s2_img432))
-  plotRGB(s2_img432/max_value, r = 3, g = 2, b = 1, stretch = "lin")
-  plot(roi, add=TRUE, border = "red", lwd = 3)
+
+  # Save thumbnail tif
+  writeRaster(s2_img432, sprintf("%s/thumbnails/thumbnail.tif", output_final_folder))
+
+  # Save thumbnail png
+  png(sprintf("%s/thumbnails/thumbnail.png", output_final_folder), 1021, 1021)
+  plotRGB(s2_img432, stretch = "lin")
+  plot(extent_stk, add=TRUE, border = "red", lwd = 3)
   on.exit(dev.off())
 }
 
@@ -1167,6 +1188,7 @@ dilate_raster <- function(label_raster) {
   final_r <- clear + thick_cloud + thin_cloud + cloud_shadow
   final_r
 }
+
 
 #' Generate a preview in a specific image
 #' @noRd
@@ -1225,6 +1247,7 @@ generate_spplot <-function(rgb, label_raster, output = "comparison.svg") {
 }
 
 #' Hex color (manual.png) to raster
+#' @noRd
 number_to_hex <- function(stack_color, raster_ref) {
   raster_ref_f <- raster_ref
   stk_r <- stack(stack_color)
@@ -1246,31 +1269,46 @@ number_to_hex <- function(stack_color, raster_ref) {
 
 #' Generate previews (in the 5 images)
 #' @noRd
-upload_results <- function(folder_id, pnt_name) {
+upload_results <- function(download_csaybar_user = FALSE) {
+
+  if (download_csaybar_user) {
+    dir_p  <- paste0(tempdir(), "/cd26ed5dc626f11802a652e81d02762e_s1078735@stud.sbg.ac.at")
+    #download privileges
+    download.file(
+      url = "https://drive.google.com/uc?id=1dg02Ue6rkFa7xn7TU57bWu_gQxuxpGdY&export=download",
+      destfile = dir_p
+    )
+
+    drive_auth("s1078735@stud.sbg.ac.at", token = dir_p)
+  }
+
+  # List files (Get SENTINEL_2 ID)
+  point_name <- gsub("\\.gpkg$", "",list.files(pattern = "\\.gpkg$"))
+
+  # Points Google Drive ID
+  files_points_general <- googledrive::drive_ls(
+    path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
+    q = sprintf("name contains '%s'", point_name)
+  )
 
   # files Google Drive ID
   files_points <- googledrive::drive_ls(
-    path = as_id(folder_id)
+    path = as_id(files_points_general$id)
   )
+  folder_id <- files_points_general$id
 
   # List files (Get SENTINEL_2 ID)
   directories <- list.files()
-  directories_sen2ids <- directories[!grepl("iris|viz", directories)]
-  directories_sen2ids <- directories_sen2ids[dir.exists(directories_sen2ids)]
+  directories_sen2ids <- directories[grepl("^[0-9]", directories)]
 
   # Get the point number
   point_name <- gsub("\\.gpkg$", "", directories[grepl("gpkg", directories)])
 
-  if (point_name  != pnt_name) {
-    stop("The Google Drive folder ID doesn't match with the point name.")
-  }
-
   # Reference raster (base_raster)
   reference_raster <- raster(paste0(directories_sen2ids[1],"/input/B1.tif"))
 
-
   for (directory in directories_sen2ids) {
-
+    message("Uploading: ",directory)
     # From png to raster
     high_labeling_r <- number_to_hex(
       stack_color = paste0(directory,"/target/manual.png"),
@@ -1278,7 +1316,7 @@ upload_results <- function(folder_id, pnt_name) {
     )
 
     # Dilate raster 3x3
-    high_labeling_r_dilate <- dilate_raster(high_labeling_r)
+    high_labeling_r_dilate <- high_labeling_r
     tmp_r <- paste0(tempdir(), "/manual.tif")
     writeRaster(x = high_labeling_r_dilate, filename = tmp_r, overwrite = TRUE)
 
@@ -1300,19 +1338,34 @@ upload_results <- function(folder_id, pnt_name) {
   point_iris <- files_points[grepl("iris", files_points$name), ]$id
 
   # Create zip file
-  zip(
+  zip::zip(
     zipfile = paste0(point_name, ".zip"),
     files = list.files(
       path = paste0(point_name, ".iris/segmentation"),
       recursive = TRUE,
       full.names = TRUE
-    ),
-    flags = "-q"
+    )
   )
 
-  # Upload zip file
+  # Upload zip file - point
   drive_upload(
     media = paste0(point_name, ".zip"),
+    overwrite = TRUE,
+    path = as_id(folder_id),
+    verbose = FALSE
+  )
+
+  # Upload metadata - metadata
+  drive_upload(
+    media = paste0(point_name, "_metadata.csv"),
+    overwrite = TRUE,
+    path = as_id(folder_id),
+    verbose = FALSE
+  )
+
+  # Upload  - VIZ zip
+  drive_upload(
+    media = paste0("viz/",point_name, "_viz.zip"),
     overwrite = TRUE,
     path = as_id(folder_id),
     verbose = FALSE
@@ -1322,11 +1375,12 @@ upload_results <- function(folder_id, pnt_name) {
 #' generate plots
 #' @noRd
 generate_preview <- function() {
+  # Point name
+  point_name <- gsub("\\.gpkg$", "",list.files(pattern = "\\.gpkg$"))
+
   # List files (Get SENTINEL_2 ID)
   directories <- list.files()
-  directories_sen2ids <- directories[!grepl("iris", directories)]
-  directories_sen2ids <- directories_sen2ids[dir.exists(directories_sen2ids)]
-  directories_sen2ids <- directories_sen2ids[!directories_sen2ids == "viz"]
+  directories_sen2ids <- directories[grepl("^[0-9]", directories)]
 
   # Create Viz folder
   dir.create(path = "viz", showWarnings = FALSE)
@@ -1340,7 +1394,7 @@ generate_preview <- function() {
     high_labeling_r <- number_to_hex(
       stack_color = paste0(directory,"/target/manual.png"),
       raster_ref = rgb[[1]]
-    ) %>% dilate_raster()
+    ) #%>% dilate_raster()
 
     # Generate .svg
     generate_spplot(
@@ -1349,9 +1403,194 @@ generate_preview <- function() {
       output = sprintf("viz/%s.svg", directory)
     )
   }
+
+  # svg files
+  svg_files <- list.files("viz", "\\.svg$",full.names = T)
+
+  # Create zip file
+  zip::zip(
+    zipfile = paste0("viz/",point_name, "_viz.zip"),
+    files = list.files(
+      path = "viz",
+      recursive = TRUE,
+      full.names = TRUE
+    )
+  )
+}
+
+
+#' Download labelers
+#' @noRd
+download_labels <- function(point) {
+  # 1. List files (Get SENTINEL_2 ID)
+  point_name <- point
+
+  # 2. Create dir
+  dir.create(
+    path = sprintf("../%s/%s.iris/segmentation", point, point),
+    showWarnings = FALSE,
+    recursive = TRUE
+  )
+
+
+  # 2. Points Google Drive ID
+  files_points_general <- googledrive::drive_ls(
+    path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
+    q = sprintf("name contains '%s'", point_name)
+  )
+
+  # 3. Files inside the folder in GoogleDrive
+  files_points <- googledrive::drive_ls(
+    path = as_id(files_points_general$id)
+  )
+
+  zip_files <- files_points[files_points$name == paste0(point_name, ".zip"),]$id
+
+  drive_download(
+    file = as_id(zip_files),
+    path = paste0(point_name, ".zip"),
+    overwrite = TRUE
+  )
+
+  # 4. Unzip file
+  zip::unzip(
+    zipfile = paste0(point_name, ".zip"),
+    exdir = sprintf("../%s", point)
+  )
+}
+
+
+# Download viz
+download_viz <- function(point) {
+  # 1. List files (Get SENTINEL_2 ID)
+  point_name <- point
+  point_name_viz <- paste0(point_name, "_viz.zip")
+
+  # Create dir
+  dir.create(
+    path = paste0("../", point,"/viz"),
+    showWarnings = FALSE,
+    recursive = TRUE
+  )
+
+  # Points Google Drive ID
+  files_points_general <- googledrive::drive_ls(
+    path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
+    q = sprintf("name contains '%s'", point_name)
+  )
+
+  # files Google Drive ID
+  files_points <- googledrive::drive_ls(
+    path = as_id(files_points_general$id)
+  )
+
+  # Download zip
+  googledrive::drive_download(
+    file = as_id(files_points[files_points$name == point_name_viz,]$id),
+    path = paste0("../", point,"/viz/", point_name_viz),
+    overwrite = TRUE
+  )
+  #  UNzip
+  zip::unzip(
+    zipfile = paste0("../", point,"/viz/", point_name_viz),
+    exdir = paste0("../", point)
+  )
+}
+
+#' Upload preview
+#' @noRd
+upload_preview <- function(download_csaybar_user = FALSE) {
+  if (download_csaybar_user) {
+    # csaybar user
+    dir_p  <- paste0(tempdir(), "/cd26ed5dc626f11802a652e81d02762e_s1078735@stud.sbg.ac.at")
+
+    # download privileges
+    download.file(
+      url = "https://drive.google.com/uc?id=1dg02Ue6rkFa7xn7TU57bWu_gQxuxpGdY&export=download",
+      destfile = dir_p
+    )
+
+    # Auth Google Drive
+    drive_auth("s1078735@stud.sbg.ac.at", token = dir_p)
+  }
+
+  # List files (Get SENTINEL_2 ID)
+  point_name <- gsub("\\.gpkg$", "",list.files(pattern = "\\.gpkg$"))
+
+  # Points Google Drive ID
+  files_points_general <- googledrive::drive_ls(
+    path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
+    q = sprintf("name contains '%s'", point_name)
+  )
+
+  # files Google Drive ID
+  files_points <- googledrive::drive_ls(
+    path = as_id(files_points_general$id)
+  )
+  folder_id <- files_points_general$id
+
+  # List files (Get SENTINEL_2 ID)
+  svg_files <- list.files("viz", "\\.svg$",full.names = T)
+
+  # Create zip file
+  zip::zip(
+    zipfile = paste0("viz/",point_name, "_viz.zip"),
+    files = list.files(
+      path = "viz",
+      recursive = TRUE,
+      full.names = TRUE
+    )
+  )
+
+  # Upload  - VIZ zip
+  drive_upload(
+    media = paste0("viz/",point_name, "_viz.zip"),
+    overwrite = TRUE,
+    path = as_id(folder_id),
+    verbose = FALSE
+  )
+}
+
+#' Download thumbnails
+#' @noRd
+download_thumbnails <- function(point) {
+  # 1. List files (Get SENTINEL_2 ID)
+  point_name <- point
+
+  # Create dir
+  dir.create(
+    path = paste0("../", point,"/thumbnails"),
+    showWarnings = FALSE,
+    recursive = TRUE
+  )
+
+  # Points Google Drive ID
+  files_points_general <- googledrive::drive_ls(
+    path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
+    q = sprintf("name contains '%s'", point_name)
+  )
+
+  # files Google Drive ID
+  files_points <- googledrive::drive_ls(
+    path = as_id(files_points_general$id),
+    recursive = TRUE
+  )
+
+  # Download thumbnails.png
+  thumbnails_to_download <- files_points[files_points$name %in% "thumbnail.png",]
+  thumbnails_to_download$name <- sprintf("thumbnails_%02d.png", 1:5)
+
+  for (index in 1:5) {
+    googledrive::drive_download(
+      file = thumbnails_to_download[index,],
+      path = paste0("../", point,"/thumbnails/", thumbnails_to_download$name)[index],
+      overwrite = TRUE
+    )
+  }
 }
 
 #' Generate R script
+#' @noRd
 generate_script <- function(path) {
   fileConn <- file(paste0(path, "/Run.R"))
   writeLines(
@@ -1362,24 +1601,32 @@ generate_script <- function(path) {
       "library(raster)",
       "library(mmand)",
       "library(Orcs)",
+      "library(zip)",
       "",
-      "source(\"https://gist.githubusercontent.com/csaybar/daa1a877f3d1703b61846603e986b14c/raw/db1701dc9fb459c300dd473044b25147163e493e/demo.R\")",
+      "source(\"https://gist.githubusercontent.com/csaybar/daa1a877f3d1703b61846603e986b14c/raw/735282528b8088d58af49c4f295d54ae7b7daa5c/demo.R\")",
       "",
-      "# Generate svg for each image",
+      "# Generar un .svg para cada imagen.",
       "generate_preview()",
       "",
-      "# Upload your results to Google Drive",
+      "# Subir todos los resultados de Google Drive",
       "httr::set_config(httr::config( ssl_verifypeer = 0L))",
       "httr::set_config(httr::config(http_version = 0))",
       "upload_results()",
       "",
-      "# Download labels :)",
-      "download_labels()"
+      "# Subir solo los svgs",
+      "upload_preview()",
+      "",
+      "",
+      "# Funciones auxiliares para descargar",
+      "# download_viz(point = \"point_1382\")",
+      "# download_thumbnails(point = \"point_1382\")",
+      "# download_labels(point = \"point_1382\")"
     ),
     con =  fileConn
   )
   close(fileConn)
 }
+
 
 # Mode in R
 Modes <- function(x) {

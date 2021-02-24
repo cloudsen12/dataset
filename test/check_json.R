@@ -113,3 +113,5 @@ metadata_files[json_control_4(metadata_files)]
 ee_Initialize("lesly")
 db_points <- json_control_5(1:1500)
 
+db_points %>%
+  filter(exist == TRUE)

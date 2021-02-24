@@ -47,4 +47,8 @@ local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
 select_dataset_thumbnail_creator_batch(cesar, local_cloudsen2_points)
 
 # # # 5. Download all images
-download_all_images(1:1500, local_cloudsen2_points)
+download_all_images(
+  points = 1:1500,
+  local_cloudsen2_points = local_cloudsen2_points,
+  output_final = "/home/csaybar/Desktop/cloudsen12/"
+)
