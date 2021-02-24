@@ -36,7 +36,6 @@ ee_Initialize("csaybar", drive = TRUE, gcs = TRUE)
 source("src/utils.R")
 ee_cloud <- import("ee_ipl_uv")
 
-
 # 3. Load points with desired cloud average (after run point_creator.R)
 local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
 
@@ -48,7 +47,7 @@ select_dataset_thumbnail_creator_batch(cesar, local_cloudsen2_points)
 
 # # # 5. Download all images
 download_all_images(
-  points = 1:1500,
+  points = 7,
   local_cloudsen2_points = local_cloudsen2_points,
   output_final = "/home/csaybar/Desktop/cloudsen12/"
 )

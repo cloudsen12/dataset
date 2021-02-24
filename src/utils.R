@@ -296,7 +296,7 @@ dataset_creator_chips <- function(jsonfile,
 
     # B10 threshold
     input_spec_b10 <- sprintf("%s/input/%s.tif", output_final_folder, "B10_threshold")
-    writeRaster((input_data[[11]] > 0.25), input_spec_b10)
+    writeRaster((input_data[[11]] > 0.025), input_spec_b10)
 
     if (maxValue(final_stack[[14]] == -99)) {
       stop("Sentinel2 with NaN data")
@@ -638,6 +638,11 @@ ee_create_cloudseg <- function(path) {
         description = "NDVI values",
         type = "image",
         data = "($B5.B1 - $B4.B1)/($B5.B1 + $B4.B1)"
+      ),
+      CIRRUS_THRESHOLD = list(
+        description = "Cirrus threshold > 0.025",
+        type = "image",
+        data = "$B10_threshold.B1"
       ),
       sen2cloudness = list(
         description = "Sen2Cloudness Probability",
