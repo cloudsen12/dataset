@@ -35,7 +35,10 @@ tile_monitoring <- function() {
 
 # hqlabels monitoring in progress :3
 hqlabels_monitoring <- function() {
-  xls <- read_sheet("https://docs.google.com/spreadsheets/d/1LpW9JY2BdhlQvAObD1BCzoBiliNRnU3fCRWMQJFRvoM")
+  xls <- read_sheet(
+    ss = as_sheets_id("1LpW9JY2BdhlQvAObD1BCzoBiliNRnU3fCRWMQJFRvoM"),
+    range = "A1:F1000"
+  )
   xls_db <- xls %>%
     filter(labeler  %in%  c("Jhomira", "Eduardo", "Fernando")) %>%
     filter(!is.na(sen2_id))
@@ -51,7 +54,6 @@ hqlabels_monitoring <- function() {
 }
 
 tile_monitoring()
-
 httr::set_config(httr::config( ssl_verifypeer = 0L))
 httr::set_config(httr::config(http_version = 0))
 hqlabels_monitoring()
