@@ -101,16 +101,17 @@ full_test <- function(json_name = "metadata/metadata_0001.json") {
 }
 
 
+
 # TEST 01: Does the JSON malformed?
 # TEST 02: Does the JSON have empty names?
 # TEST 04: Is there duplicated Sentinel2 ID in the same JSON?
 # TEST 05: Does the Sentinel2 ID malformed?
 
 #TEST ID
+setwd("/home/csaybar/Documents/Github/cloudsen12/dataset/")
 metadata_folder <- "metadata/"
 metadata_files <- list.files(metadata_folder, full.names = TRUE)
-
-
+index <- 874
 testing_json <- list()
 for (index in 1:length(metadata_files)) {
   print(index)

@@ -1,4 +1,10 @@
-#' Script to create all the images in the cloudsen12 dataset
+#' Main script to construct cloudSEN12. This script support three-step:
+#'
+#' (1) select_dataset_thumbnail_creator_batch: Tile selection.
+#' (2) download_images: Download all the points from cloudSEN12 (friendly with IRIS).
+#' (3) db_migration: Create .npy and order cloud detection models
+#' (4) stac_feature_creator: Create single-file .json with image metadata following the STAC Item specification
+#' (5) stac_featurecollection_creator: Merge all item files (.json) in a single file (FeatureCollection).
 #'
 #' human label:
 #'   0 -> clear
@@ -8,8 +14,10 @@
 #'
 #' @author csaybar
 
-# 1. Libraries
+# 1. R Libraries
 library(googleCloudStorageR)
+library(googlesheets4)
+library(filesstrings)
 library(googledrive)
 library(reticulate)
 library(rasterVis)
@@ -30,24 +38,64 @@ library(png)
 library(sf)
 library(sp)
 
-# 2. Initialize Earth Engine
-ee_Initialize("csaybar", drive = TRUE, gcs = TRUE)
-
-source("src/utils.R")
+# 2. Python Libraries
 ee_cloud <- import("ee_ipl_uv")
+rio <- import("rasterio")
+np <- import("numpy")
 
-# 3. Load points with desired cloud average (after run point_creator.R)
+# 3. Auxiliary functions
+source("src/utils.R")
+
+# 2. Initialize Earth Engine, GD and GS4 (the user must have permission to write in csaybar and roy GD folder)
+# https://drive.google.com/drive/u/1/folders/1aTPIZ974zvtti6a02eiMyZaIf_Rp8QEc (ROY DRIVE)
+# https://drive.google.com/drive/u/0/folders/1tcFgbP3SLovBy3UNs7OPMWNOO5PuiCuP (CSAYBAR DRIVE)
+# https://console.cloud.google.com/storage/browser/cloudsen12 (CSAYBAR bucket)
+ee_Initialize("aybar1994", drive = TRUE, gcs = TRUE)
+drive_auth("aybar1994@gmail.com")
+gs4_auth("aybar1994@gmail.com")
+
+
+# 3. Load Potential points (points created with point_creator.R)
 local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
 
-# 4. Classify (label) images in clear, almost clear, low-cloudy, mid-cloudy, cloudy
-# cesar <- 5851:7909
-# roy <- 7910:9968
-# prudencio <- 9969:12023
-# select_dataset_thumbnail_creator_batch(cesar, local_cloudsen2_points)
 
-# # # 5. Download all images
-download_all_images(
-  points = 1001:1500,
+# 4. Tile selection on each point and image
+select_dataset_thumbnail_creator_batch(
+  points = 1:12000,
   local_cloudsen2_points = local_cloudsen2_points,
-  output_final = "/home/csaybar/Desktop/cloudsen12/"
+  n_images = "max",
+  kernel_size = c(255, 255),
+  data_range = c("2018-01-01", "2020-07-31"),
+  output = "/home/csaybar/cloudSEN12/"
+)
+
+# 5. Download all CLOUDSEN12 images with a format friendly with IRIS
+download_cloudSEN12_images(
+  points = 1:12000,
+  local_cloudsen2_points = local_cloudsen2_points,
+  output = "/home/csaybar/cloudSEN12/"
+)
+
+# 6. Database migration, we restructured the database with a format easy to
+#    ingest into a deep learning model.
+db_migration_batch(
+  points = 1:12000,
+  output = "/home/csaybar/cloudSEN12/"
+)
+
+
+# 7. Create STAC items (features) following the single file STAC Extension Specification
+# https://github.com/stac-extensions/single-file-stac
+stac_feature_creator_batch(
+  points = 1:12000,
+  potencial_points = local_cloudsen2_points,
+  output = "/home/csaybar/cloudsen12/"
+)
+
+
+# 8. Merge all json in a same file (FeatureCollection)
+json_list <- list.files("/home/csaybar/cloudsen12/", "\\.json$", recursive = TRUE, full.names = TRUE)
+stac_featurecollection_creator(
+  json_list = json_list,
+  outputfile = "/home/csaybar/Documents/Github/STAC/data/index.geojson"
 )

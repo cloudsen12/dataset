@@ -21,7 +21,7 @@ select_dataset_thumbnail_creator <- function(cloudsen2_row,
   point <- ee$Geometry$Point(cloudsen2_row$geometry[[1]])
 
   # 3. Create a S2 ImageCollection.
-  s2Sr <- ee$ImageCollection("COPERNICUS/S2_SR") %>%
+  s2Sr <- ee$ImageCollection("COPERNICUS/S2") %>%
     ee$ImageCollection$filterBounds(point) %>%
     ee$ImageCollection$filterDate(data_range[1], data_range[2])
 
@@ -1910,7 +1910,12 @@ download_labels <- function() {
 
 
 # Full download images
-download_all_images <- function(points, local_cloudsen2_points, output_final) {
+download_cloudSEN12_images <- function(points, local_cloudsen2_points, output) {
+  # Create folder
+  if (!dir.exists(output)) {
+    dir.create(path = output, recursive = TRUE, showWarnings = TRUE)
+  }
+
   for (index in points) {
     message("Downloading: Point_", index)
     metadata_json <- sprintf("metadata_%04d.json", index)
@@ -1920,7 +1925,7 @@ download_all_images <- function(points, local_cloudsen2_points, output_final) {
         dataset_creator_chips(
           jsonfile = jsonfile,
           sp_db = local_cloudsen2_points,
-          output_final = output_final
+          output_final = output
         )
       )
     }
@@ -1928,9 +1933,1013 @@ download_all_images <- function(points, local_cloudsen2_points, output_final) {
 }
 
 # Full download image thumbnails
-select_dataset_thumbnail_creator_batch <- function(points, local_cloudsen2_points) {
+select_dataset_thumbnail_creator_batch <- function(points,
+                                                   local_cloudsen2_points,
+                                                   n_images = "max",
+                                                   kernel_size = c(255, 255),
+                                                   data_range = c("2018-01-01", "2020-07-31"),
+                                                   output = "results/") {
   for (index in points) {
     cloudsen2_row <- local_cloudsen2_points[index,]
-    select_dataset_thumbnail_creator(cloudsen2_row = cloudsen2_row)
+    select_dataset_thumbnail_creator(
+      cloudsen2_row = cloudsen2_row,
+      n_images = n_images,
+      kernel_size = kernel_size,
+      data_range = data_range,
+      output = output
+    )
+  }
+}
+
+# -------------------------------------------------------------------------
+# MIGRATION FUNCTIONS -----------------------------------------------------
+# -------------------------------------------------------------------------
+
+landuse_types_list <- list(
+  'Unknown' = 0,
+  'Shrubs' = 20,
+  'Herbaceous vegetation' = 30,
+  'Cultivated and managed vegetation / agriculture' = 40,
+  'Urban / built up' = 50,
+  'Bare / sparse vegetation' = 60,
+  'Snow and ice' = 70,
+  'Permanent water bodies' = 80,
+  'Herbaceous wetland' = 90,
+  'Moss and lichen' = 100,
+  'Closed forest, evergreen needle leaf' = 111,
+  'Closed forest, evergreen broad leaf' = 112,
+  'Closed forest, deciduous needle leaf' = 113,
+  'Closed forest, deciduous broad leaf' = 114,
+  'Closed forest, mixed' = 115,
+  'Closed forest, not matching any of the other definitions' = 116,
+  'Open forest, evergreen needle leaf' = 121,
+  'Open forest, evergreen broad leaf' = 122,
+  'Open forest, deciduous needle leaf' = 123,
+  'Open forest, deciduous broad leaf' = 124,
+  'Open forest, mixed' = 125,
+  'Open forest, not matching any of the other definitions' = 126,
+  'Oceans, seas' = 200
+)
+
+# Get coverage radar
+get_coverage_radar <- function(radar_file) {
+  sum(is.na(valuesRadar) + 1)/(511*511)
+}
+
+# Detect s1 data
+ee_get_s1 <- function(point, s2_date, range = 2.5) {
+
+  # 1. Defining temporal filter
+  s1_date_search <- list(
+    init_date = (s2_date - lubridate::hours(range * 24)) %>% rdate_to_eedate(),
+    last_date = (s2_date + lubridate::hours(range * 24)) %>% rdate_to_eedate()
+  )
+
+  # 2. Load S1 data
+  s1_grd <- ee$ImageCollection("COPERNICUS/S1_GRD") %>%
+    ee$ImageCollection$filterBounds(point) %>%
+    ee$ImageCollection$filterDate(s1_date_search[[1]], s1_date_search[[2]]) %>%
+    # Filter to get images with VV and VH dual polarization.
+    ee$ImageCollection$filter(ee$Filter$listContains("transmitterReceiverPolarisation", "VV")) %>%
+    ee$ImageCollection$filter(ee$Filter$listContains('transmitterReceiverPolarisation', "VH")) %>%
+    # Filter to get images collected in interferometric wide swath mode.
+    ee$ImageCollection$filter(ee$Filter$eq("instrumentMode", "IW"))
+
+  # 3. get dates and ID
+  s1_grd_id <- tryCatch(
+    expr = ee_get_date_ic(s1_grd),
+    error = function(e) {
+      message(
+        "Not found any Sentinel-1 within 2.5 days ...,",
+        "This is so weird :| ... Report to Cesar :)"
+      )
+      stop(e)
+    }
+  )
+
+  # 4. Get the nearest image
+  row_position <- which.min(abs(s1_grd_id$time_start - s2_date))
+  s1_grd_id[row_position,][["id"]]
+}
+
+#' Download thumbnails
+download_thumbnails <- function(thumbnail_file) {
+  in_thumb_file <- paste0(tempfile(), ".tif")
+  out_thumb_file <- paste0(tempfile(), ".tif")
+  drive_download(
+    file = thumbnail_file,
+    path = in_thumb_file,
+    overwrite = TRUE
+  )
+  system(sprintf("gdalwarp  %s %s -of COG -co BLOCKSIZE=256", in_thumb_file, out_thumb_file))
+  out_thumb_file
+}
+
+
+#' Download and order and save cloud models in the temp/ folder
+files_target_final_creator <- function(files_target_files, s2_id, point) {
+  # s2cloudness_prob
+  s2cloudness_file <- sprintf("%s.tif", tempfile())
+  from_TIFF_to_COG(files_target_files[["s2cloudness_prob"]], s2cloudness_file)
+
+  # sen2cor_real
+  sen2cor_file <- sprintf("%s.tif", tempfile())
+  from_TIFF_to_COG(files_target_files[["sen2cor_real"]], sen2cor_file)
+
+  # manual
+  manual_file <- sprintf("%s.tif", tempfile())
+  from_TIFF_to_COG(files_target_files[["manual"]], manual_file)
+
+  # IPLcloud
+  inIPLcloud <- sprintf("%s.tif", tempfile())
+  outIPLcloud <- sprintf("%s.tif", tempfile())
+  qa_band <- raster(files_target_files[["IPL_cloudmask_reclass"]])
+  qa_band[1,1] <- 1
+  qa_band[1,3] <- 3
+  qa_band[qa_band==3] <- 1
+  qa_band[qa_band==1] <- 2
+  writeRaster(qa_band, inIPLcloud, overwrite = TRUE)
+  from_TIFF_to_COG(inIPLcloud, outIPLcloud)
+
+  # QAbands
+  inQAbands <- sprintf("%s.tif", tempfile())
+  outQAbands <- sprintf("%s.tif", tempfile())
+  rK <- 1000
+  sen2_q60 <- ee$Image(sprintf("COPERNICUS/S2/%s", s2_id))$select("QA60")
+  cloud_mask <- sen2_q60$remap(c(0L, 1024L, 2048L), c(0L, 1L, 2L))
+  new_bound <- (st_bbox(read_stars(outIPLcloud)) + c(-rK, -rK, rK, rK)) %>% st_as_sfc()
+  rr1 <- ee_as_raster(
+    image = cloud_mask,
+    region = new_bound %>% sf_as_ee()
+  )
+  tempfiletif <- sprintf("%s.tif", tempfile())
+  writeRaster(rr1, tempfiletif)
+  system(
+    sprintf(
+      "gdalwarp %s %s -overwrite -te %s %s %s %s -tr 10 10",
+      tempfiletif,
+      inQAbands,
+      as.numeric(st_bbox(read_stars(outIPLcloud)))[1],
+      as.numeric(st_bbox(read_stars(outIPLcloud)))[2],
+      as.numeric(st_bbox(read_stars(outIPLcloud)))[3],
+      as.numeric(st_bbox(read_stars(outIPLcloud)))[4]
+    )
+  )
+  from_TIFF_to_COG(inQAbands, outQAbands)
+
+  # FMASK (csaybar folder)
+  inFMASK <- sprintf("%s.tif", tempfile())
+  outFMASK <- sprintf("%s.tif", tempfile())
+
+  files_points_general <- googledrive::drive_ls(
+    path = as_id("1DV7jPg5jyxc58GdbK18LueQ1c_ksHxem"),
+    q = sprintf("name contains '%s'", point)
+  )
+  files_s2_files <- googledrive::drive_ls(
+    path = as_id(files_points_general$id)
+  )
+  drive_download(
+    file = files_s2_files[grepl(s2_id, files_s2_files$name), ],
+    path = inFMASK
+  )
+  from_TIFF_to_COG(inFMASK, outFMASK)
+
+  # SIAM
+  inSIAM <- sprintf("%s.tif", tempfile())
+  outSIAM <- sprintf("%s.tif", tempfile())
+
+  files_points_general <- googledrive::drive_ls(
+    path = as_id("1DXDzgX91PkGjYXg5HZfE1QEeDaVjm6kU"),
+    q = sprintf("name contains '%s'", point)
+  )
+  files_s2_files <- googledrive::drive_ls(
+    path = as_id(files_points_general$id)
+  )
+  drive_download(
+    file = files_s2_files[grepl(s2_id, files_s2_files$name), ],
+    path = inSIAM
+  )
+  from_TIFF_to_COG(inSIAM, outSIAM)
+
+  list(
+    manual = manual_file,
+    s2cloudness = s2cloudness_file,
+    sen2cor = sen2cor_file,
+    iplcloud = outIPLcloud,
+    qa60 = outQAbands,
+    fmask = outFMASK,
+    siam = outSIAM
+  )
+}
+
+#' From GeoTIFF to COG
+from_TIFF_to_COG <- function(infile, outfile) {
+  system(sprintf("gdalwarp  %s %s -of COG -overwrite -co BLOCKSIZE=256", infile, outfile))
+  outfile
+}
+
+#' From GeoTIFF to COG
+create_final_target <- function(x, output) {
+  clear <- x == 0
+  thick_cloud <- x == 1
+  thin_cloud <- x == 2
+  shadow_cloud <- x == 3
+  stk_stars <- stack(clear, thick_cloud, thin_cloud, shadow_cloud) %>%
+    st_as_stars() %>%
+    '[['("layer.1") %>%
+    np$save(output, .)
+  output
+}
+
+
+#' Create .npy files from input model (20 GeoTIFF files)
+#' @noRd
+create_npy_file <- function(files_input_image_ls, output) {
+  # Names order
+  names_in_order <- c(
+    "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B9", "B10", "B11",
+    "B12", "VH", "VV", "angle", "CDI", "cloudshadow_direction", "elevation",
+    "landuse"
+  )
+  files_input_image_ls[names_in_order] %>%
+    read_stars() %>%
+    merge() %>%
+    '[['("X") %>%
+    np$save(output, .)
+  output
+}
+
+#' Download input from Roy Folder
+download_input <- function(files_input_image) {
+  list_manual <- list()
+  for (index in seq_len(nrow(files_input_image))) {
+    file_tif <- paste0(tempfile(), ".tif")
+    drive_download(
+      file = files_input_image[index,],
+      path = file_tif,
+      overwrite = TRUE
+    )
+    fn_name <- gsub("\\.tif$", "", files_input_image[index,]$name)
+    list_manual[[fn_name]] <- file_tif
+  }
+  list_manual
+}
+
+#' List images in a Point Folder
+list_point_folder <- function(point_name, gd_id = "1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6") {
+
+  # refresh
+  httr::set_config(httr::config( ssl_verifypeer = 0L))
+  httr::set_config(httr::config(http_version = 0))
+
+  # cloudsen12 level find the point
+  files_points_general <- googledrive::drive_ls(
+    path = as_id(gd_id),
+    q = sprintf("name contains '%s'", point_name)
+  )
+
+  # POINT level
+  googledrive::drive_ls(
+    path = as_id(files_points_general$id)
+  )
+}
+
+#' List images in a S2 Image Folder
+list_images_in_folder <- function(point_name) {
+  lpf <- list_point_folder(point_name)
+  lpf[grepl("^[0-9]", lpf$name),]
+}
+
+#' List a specific image
+list_image_folder <- function(image_id) {
+  googledrive::drive_ls(
+    path = as_id(image_id$id)
+  )
+}
+
+# List a specific image input folder
+list_input_image_folder <- list_image_folder
+
+# List a specific image target folder
+list_target_image_folder <- list_image_folder
+
+# List a specific image thumbnails folder
+list_thumbnails_image_folder <- list_image_folder
+
+#' Download cloud model results :)
+download_labels <- function(files_target_image) {
+  list_manual <- list()
+  for (index in seq_len(nrow(files_target_image))) {
+    file_tif <- paste0(tempfile(), ".tif")
+    drive_download(
+      file = files_target_image[index,],
+      path = file_tif,
+      overwrite = TRUE
+    )
+    fn_name <- gsub("\\.tif$", "", files_target_image[index,]$name)
+    list_manual[[fn_name]] <- file_tif
+  }
+
+  if (is.null(list_manual[["IPL_cloudmask_reclass"]])) {
+    baseRaster <- raster(list_manual[["manual"]])
+    baseRaster[] <- NA
+    ipl_temp <- paste0(tempfile(), ".tif")
+    writeRaster(baseRaster, ipl_temp)
+    list_manual[["IPL_cloudmask_reclass"]] <- ipl_temp
+  }
+  list_manual
+}
+
+#' DataBase Migration
+db_migration <- function(point, output) {
+
+  # Point level (ROY FOLDER)
+  files_points <- list_point_folder(point_name = tolower(point))
+  files_points_only_img_folder <- files_points[grepl("^[0-9]", files_points$name),]
+
+  # List each image
+  for (index in 1:5) {
+    # Image level (Roy Folder)
+    s2_id <- files_points_only_img_folder[index,]$name
+
+    # List files inside the IMAGE Folder
+    files_image_folder <- list_image_folder(files_points_only_img_folder[index,])
+
+    # Target level (Roy Folder)
+    files_target_folder <- list_target_image_folder(files_image_folder[files_image_folder$name == "target",])
+
+    # Download target image (Roy Folder)
+    files_target_files <- download_labels(files_target_folder)
+    manual_file <- files_target_files$manual
+    target_npy_temp <- create_final_target(raster(manual_file), paste0(tempfile(), ".npy"))
+    target_model_folder <- files_target_final_creator(files_target_files, s2_id, point)
+
+    # Input level (Roy Folder)
+    files_input_folder <- list_target_image_folder(files_image_folder[files_image_folder$name == "input",])
+    files_input_folder_no_b10_thershold <- files_input_folder %>%
+      filter(name != "B10_threshold.tif")
+    files_input_files <- download_input(files_input_folder_no_b10_thershold)
+    input_npy_temp <- create_npy_file(files_input_files, paste0(tempfile(), ".npy")) # Creat npy array (20x511x511)
+
+    # Thumbnails level (Roy Folder)
+    thumbnails_image_list <- list_thumbnails_image_folder(files_image_folder[files_image_folder$name == "thumbnails",])
+    thumbnail_file <- thumbnails_image_list[thumbnails_image_list$name == "thumbnail.tif",]
+    thumbnail_tif_temp <- download_thumbnails(thumbnail_file)
+
+    # Create a directory
+    dir.create(
+      path = sprintf("%s/%s/%s/models",output, point, s2_id),
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    # save thumbnail
+    file.copy(
+      from = thumbnail_tif_temp,
+      to = sprintf("%s/%s/%s/thumbnail.tif",output, point, s2_id),
+      overwrite = TRUE
+    )
+
+    # save manual npy
+    file.copy(
+      from = target_npy_temp,
+      to = sprintf("%s/%s/%s/manual.npy",output, point, s2_id),
+      overwrite = TRUE
+    )
+
+    # save input npy
+    file.copy(
+      from = input_npy_temp,
+      to = sprintf("%s/%s/%s/input.npy",output, point, s2_id),
+      overwrite = TRUE
+    )
+
+    # models
+    for (index in seq_along(target_model_folder)) {
+      # save input npy
+      file.copy(
+        from = target_model_folder[[index]],
+        to = sprintf("%s/%s/%s/models/%s.tif",output, point, s2_id, names(target_model_folder[index])),
+        overwrite = TRUE
+      )
+    }
+
+    # Point Level (Cesar Folder)
+    # files_points_general <- googledrive::drive_ls(
+    #   path = as_id("1e4C8pWF6GiLOchzUg5urjptSS8vWVxRH"),
+    #   q = sprintf("name contains '%s'", point)
+    # )
+    #
+    # # Create a new folder with the image ID
+    # drive_auth("s1078735@stud.sbg.ac.at")
+    # new_folder <- drive_mkdir(
+    #   path = files_points_general,
+    #   name = s2_id,
+    #   overwrite = TRUE
+    # )
+    #
+    # # Upload thumbnail to CLOUDSEN12
+    # drive_upload(
+    #   media = thumbnail_tif_temp,
+    #   path = as_id(new_folder),
+    #   name = "thumbnail.tif",
+    #   overwrite = TRUE
+    # )
+    #
+    # # Upload manual target to CLOUDSEN12
+    # drive_upload(
+    #   media = target_npy_temp,
+    #   path = as_id(new_folder),
+    #   name = "manual.npy",
+    #   overwrite = TRUE
+    # )
+    #
+    # # Upload input to CLOUDSEN12
+    # drive_upload(
+    #   media = input_npy_temp,
+    #   path = as_id(new_folder),
+    #   name = "input.npy",
+    #   overwrite = TRUE
+    # )
+    #
+    # # Create model folder
+    # models_folder <- drive_mkdir(
+    #   path = new_folder,
+    #   name = "models",
+    #   overwrite = TRUE
+    # )
+    #
+    # # Upload cloud models
+    # for (index in seq_along(target_model_folder)) {
+    #   models_link <- drive_upload(
+    #     media = target_model_folder[[index]],
+    #     path = as_id(models_folder$id),
+    #     name = paste0(names(target_model_folder[index]), ".tif"),
+    #     overwrite = TRUE
+    #   )
+    #   drive_share_anyone(models_link, verbose = FALSE)
+    # }
+  }
+}
+
+# STAC ITEM creator
+stac_feature_creator <- function(point,  potencial_points, output = output) {
+  # Get the number i.e Point_1000 -> 1000
+  pt_number <- as.numeric(strsplit(point, "_")[[1]][2])
+
+  # Read XLS  (columns : point, labeler, 	type, 	exist, 	difficulty, sen2_id) (ROY FOLDER)
+  # https://docs.google.com/spreadsheets/d/1LpW9JY2BdhlQvAObD1BCzoBiliNRnU3fCRWMQJFRvoM
+  start_read <- (5*(pt_number - 1) + 2)
+  sheet_range <- sprintf("A%s:F%s", start_read, (start_read + 4))
+  header <-  c("point", "labeler", "type", "exist", "difficulty", "sen2_id")
+  sheet_xls <- googlesheets4::read_sheet(
+    ss = "1LpW9JY2BdhlQvAObD1BCzoBiliNRnU3fCRWMQJFRvoM",
+    range = sheet_range,
+    col_names = header
+  )
+
+  # Point level (ROY FOLDER)
+  # https://drive.google.com/drive/u/1/folders/1aTPIZ974zvtti6a02eiMyZaIf_Rp8QEc
+  files_points <- list_point_folder(point)
+  files_points_only_img_folder <- files_points[grepl("^[0-9]", files_points$name),]
+
+  for (index in 1:5) {
+
+    ### GENEARAL PROPERTIES ---------------------
+
+    # sentinel2_product_id_gee
+    sentinel2_product_id_gee <- files_points_only_img_folder$name[index]
+
+    # sentinel2_product_id
+    s2_id <- ee$Image(sprintf("COPERNICUS/S2/%s", sentinel2_product_id_gee))
+    sentinel2_product_id <- s2_id$get("PRODUCT_ID")$getInfo()
+
+    # sentinel2_date
+    sentinel2_date <- ee_get_date_img(s2_id)[["time_start"]]
+    sentinel2_date_f <- paste0(
+      paste(strsplit(sentinel2_date %>% as.character(), " ")[[1]], collapse = "T"),
+      "Z"
+    )
+
+    # sentinel1_product_id
+    metadata_name <- paste0("metadata_", strsplit(point, "_")[[1]][2], ".json")
+    json_file <- googledrive::drive_ls(
+      path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK"),
+      q = sprintf("name contains '%s'", metadata_name)
+    ) %>% googledrive::drive_download(path = tempfile())
+    jsonfile_r <- jsonlite::read_json(json_file$local_path)
+
+    ## geom
+    st_point <- st_sfc(geometry = st_point(c(jsonfile_r$x, jsonfile_r$y)), crs = 4326)
+    crs_kernel <- ee$Image(s2_id)$select(0)$projection()$getInfo()$crs
+    point_utm <- st_transform(st_point, crs_kernel)
+    ee_point <- ee$Geometry$Point(point_utm[[1]], proj = crs_kernel)
+
+    ## sentinel1_product_id
+    sentinel1_product_id <- ee_get_s1(point = ee_point, s2_date = sentinel2_date)
+    sentinel1_date <- ee_get_date_img(ee$Image(sentinel1_product_id))[["time_start"]]
+    sentinel1_date_f <- paste0(
+      paste(strsplit(sentinel1_date %>% as.character(), " ")[[1]], collapse = "T"),
+      "Z"
+    )
+
+    # label_type
+    label_type <- potencial_points[pt_number,]$label
+
+    # difficulty
+    difficulty <- sheet_xls %>%
+      dplyr::filter(sen2_id==sentinel2_product_id_gee) %>%
+      '[['('difficulty')
+
+    # annotator_name
+    annotator_name <- sheet_xls %>%
+      dplyr::filter(sen2_id==sentinel2_product_id_gee) %>%
+      '[['('labeler')
+
+    # grd_post_processing_software_name
+    grd_post_processing_software_name <- ee$Image(sentinel1_product_id)$
+      get("GRD_Post_Processing_software_name")$
+      getInfo()
+
+    # grd_post_processing_software_version
+    grd_post_processing_software_version <- ee$Image(sentinel1_product_id)$
+      get("GRD_Post_Processing_software_version")$
+      getInfo()
+
+    # slc_processing_facility_name
+    slc_processing_facility_name <- ee$Image(sentinel1_product_id)$
+      get("SLC_Processing_facility_name")$
+      getInfo()
+
+    # SLC_Processing_software_version
+    slc_processing_software_version <- ee$Image(sentinel1_product_id)$
+      get("SLC_Processing_software_version")$
+      getInfo()
+
+    # fmask_version
+    fmask_version <- "4.3.0"
+
+    # sencloudness_version
+    sencloudness_version <- "1.5.0"
+
+    # sen2cor_version
+    ee_s2sr <- ee$Image(sprintf("COPERNICUS/S2_SR/%s", sentinel2_product_id_gee))
+    sen2cor_dtidentf <- ee_s2sr$get("DATATAKE_IDENTIFIER")$getInfo()
+    sen2cor_version <- strsplit(sen2cor_dtidentf, "_")[[1]][4]
+
+    # iplcloud_version
+    iplcloud_version <- "0.1"
+
+    # iplcloud_nimg
+    iplcloud_nimg <- 3
+
+    # iplcloud_method
+    iplcloud_method <- "persistence"
+
+    # cloud_thickness
+    cloud_thickness <- jsonfile_r[[sentinel2_product_id_gee]][["cloud_thickness"]]
+
+    # radar_coverage
+    input_data <- np$load(sprintf("%s/points/%s/%s/input.npy", dirname(output), point, sentinel2_product_id_gee))
+    radar_coverage <- sum(!is.na(input_data[,,14]))/(511*511) * 100
+
+    # cloud_height
+    cloud_height <- jsonfile_r[[sentinel2_product_id_gee]][["cloud_height"]]
+
+    # cloud_type
+    cloud_type <- jsonfile_r[[sentinel2_product_id_gee]][["cloud_type"]]
+
+    ### VIEW extention ---------------------
+
+    # view_off_nadir
+    view_off_nadir <- 0
+
+    # view_sun_azimuth
+    view_sun_azimuth <- s2_id$get("MEAN_SOLAR_AZIMUTH_ANGLE")$getInfo()
+
+    # view_sun_elevation
+    view_sun_elevation <- 90 - s2_id$get("MEAN_SOLAR_ZENITH_ANGLE")$getInfo()
+
+    ### PROJ extention ---------------------
+    raster_base_file <- sprintf(
+      "%s/points/%s/%s/models/fmask.tif",
+      dirname(output), point, sentinel2_product_id_gee
+    )
+
+    sf_tile_file <- tempfile()
+    sf_tile <- suppressWarnings(
+      drive_download(
+        files_points[grepl("\\.gpkg$", files_points$name), ],
+        sf_tile_file, overwrite = TRUE,
+      )$local_path %>% st_read()
+    )
+
+    # proj_shape
+    proj_shape <- c(511, 511)
+
+    # proj_epsg
+    proj_epsg <- st_crs(sf_tile)$epsg
+
+    # proj_geometry
+    proj_geometry <- geojsonio::geojson_list(sf_tile$geom)
+    attributes(proj_geometry) <- list(names = c("type", "coordinates"))
+
+    # proj_centroid
+    df_xy <- st_coordinates(st_transform(st_centroid(sf_tile), 4326)[["geom"]]) %>%
+      as.data.frame()
+    proj_centroid <- list(
+      "lat" = df_xy[["Y"]],
+      "lon" = df_xy[["X"]]
+    )
+
+    # proj_transform
+    proj_transform <- ee_utils_py_to_r(rio$open(raster_base_file)$get_transform())
+
+
+    ### CLOUD COVERAGE PROPERTIES ---------------------
+    manual_base_file <- sprintf(
+      "%s/points/%s/%s/manual.npy",
+      dirname(output), point, sentinel2_product_id_gee
+    )
+
+    if (file.exists(manual_base_file) & (label_type == "high_quality")) {
+      manual_labelling <- np$load(manual_base_file)
+
+      # clear_mean_coverage
+      clear_mean_coverage <- sum(manual_labelling[,,1])/(511*511)
+
+      # thickcloud_mean_coverage
+      thickcloud_mean_coverage <- sum(manual_labelling[,,2])/(511*511)
+
+      # thincloud_cloud_coverage
+      thincloud_cloud_coverage <- sum(manual_labelling[,,3])/(511*511)
+
+      # cloudshadow_mean_coverage
+      cloudshadow_mean_coverage <- sum(manual_labelling[,,4])/(511*511)
+
+    } else {
+      # clear_mean_coverage
+      clear_mean_coverage <- NA
+
+      # thickcloud_mean_coverage
+      thickcloud_mean_coverage <- NA
+
+      # thincloud_cloud_coverage
+      thincloud_cloud_coverage <- NA
+
+      # cloudshadow_mean_coverage
+      cloudshadow_mean_coverage <- NA
+    }
+
+    ### MEAN VALUES PROPERTIES ---------------------
+    input <- np$load(
+      sprintf(
+        "%s/points/%s/%s/input.npy",
+        dirname(output), point, sentinel2_product_id_gee
+      )
+    )
+
+    # B1
+    b1_mean <- mean(input[,,1], na.rm = TRUE)
+
+    # B2
+    b2_mean <- mean(input[,,2], na.rm = TRUE)
+
+    # B3
+    b3_mean <- mean(input[,,3], na.rm = TRUE)
+
+    # B4
+    b4_mean <- mean(input[,,4], na.rm = TRUE)
+
+    # B5
+    b5_mean <- mean(input[,,5], na.rm = TRUE)
+
+    # B6
+    b6_mean <- mean(input[,,6], na.rm = TRUE)
+
+    # B7
+    b7_mean <- mean(input[,,7], na.rm = TRUE)
+
+    # B8
+    b8_mean <- mean(input[,,8], na.rm = TRUE)
+
+    # B8A
+    b8a_mean <- mean(input[,,9], na.rm = TRUE)
+
+    # B9
+    b9_mean <- mean(input[,,10], na.rm = TRUE)
+
+    # B10
+    b10_mean <- mean(input[,,11], na.rm = TRUE)
+
+    # B11
+    b11_mean <- mean(input[,,12], na.rm = TRUE)
+
+    # B12
+    b12_mean <- mean(input[,,13], na.rm = TRUE)
+
+    # VH
+    vh_mean <- mean(input[,,14], na.rm = TRUE)
+
+    # VV
+    vv_mean <- mean(input[,,15], na.rm = TRUE)
+
+    # angle
+    angle_mean <- mean(input[,,16], na.rm = TRUE)
+
+    # CDI
+    cdi_mean <- mean(input[,,17], na.rm = TRUE)
+
+    # cloudshadow_direction
+    cloudshadow_direction <- mean(input[,,18], na.rm = TRUE)
+
+    # elevation
+    elevation_mean <- mean(input[,,19], na.rm = TRUE)
+
+    # landuse
+    # land_use
+    landuse_mode <- Modes(as.numeric(input[,,20]))
+    land_use <- names(landuse_types_list[landuse_types_list == landuse_mode])
+
+    final_json_properties <- list(
+      point_id = point,
+      sentinel2_product_id = sentinel2_product_id,
+      sentinel2_product_id_gee = sentinel2_product_id_gee,
+      sentinel2_date = sentinel2_date_f,
+      datetime = sentinel2_date_f,
+      sentinel1_product_id = basename(sentinel1_product_id),
+      sentinel1_date = sentinel1_date_f,
+      label_type = label_type,
+      difficulty = difficulty,
+      annotator_name = annotator_name,
+      fmask_version = fmask_version,
+      sen2cor_version = sen2cor_version,
+      sencloudness_version = sencloudness_version,
+      iplcloud_version = iplcloud_version,
+      iplcloud_nimg = iplcloud_nimg,
+      iplcloud_method = iplcloud_method,
+      slc_processing_facility_name = slc_processing_facility_name,
+      slc_processing_software_version = slc_processing_software_version,
+      grd_post_processing_software_name = grd_post_processing_software_name,
+      grd_post_processing_software_version = grd_post_processing_software_version,
+      radar_coverage = radar_coverage,
+      cloud_height = cloud_height,
+      cloud_type = cloud_type,
+      land_use = land_use,
+      'view:off_nadir' = view_off_nadir,
+      'view:sun_azimuth' = view_sun_azimuth,
+      'view:sun_elevation' = view_sun_elevation,
+      'proj:epsg' = proj_epsg,
+      'proj:geometry' = proj_geometry,
+      'proj:shape' = proj_shape,
+      'proj:centroid' = proj_centroid,
+      'proj:transform' = proj_transform,
+      b1_mean = b1_mean,
+      b2_mean = b2_mean,
+      b3_mean = b3_mean,
+      b4_mean = b4_mean,
+      b5_mean = b5_mean,
+      b6_mean = b6_mean,
+      b7_mean = b7_mean,
+      b8_mean = b8_mean,
+      b8a_mean = b8a_mean,
+      b9_mean = b9_mean,
+      b10_mean = b10_mean,
+      b11_mean = b11_mean,
+      b12_mean = b12_mean,
+      vh_mean = vh_mean,
+      vv_mean = vv_mean,
+      angle_mean = angle_mean,
+      cdi_mean = cdi_mean,
+      cloudshadow_direction = cloudshadow_direction,
+      elevation_mean = elevation_mean,
+      landuse_mode = landuse_mode,
+      clear_mean_coverage = clear_mean_coverage,
+      thickcloud_mean_coverage = thickcloud_mean_coverage,
+      thincloud_cloud_coverage = thincloud_cloud_coverage,
+      thincloud_cloud_coverage = cloudshadow_mean_coverage
+    )
+
+    # ID list
+    id_f <- paste(point, sentinel2_product_id_gee,sep = "_")
+
+    # geometry WGS84
+    geometry_f <- st_transform(sf_tile$geom, 4326) %>%
+      geojsonio::geojson_list()
+    attributes(geometry_f) <- list(names = c("type", "coordinates"))
+
+    # bbox
+    bbox_f <- st_transform(sf_tile$geom, 4326) %>% st_bbox()
+    attributes(bbox_f) <- NULL
+
+
+    # Remove ---------
+    local_folder_files <- sprintf("%s/points/%s/%s/", dirname(output), point, sentinel2_product_id_gee)
+
+    href_thumbnail <- paste0(local_folder_files, "thumbnail.tif")
+    href_fmask <- paste0(local_folder_files, "/models/fmask.tif")
+    href_iplcloud <- paste0(local_folder_files, "/models/iplcloud.tif")
+    href_manual <- paste0(local_folder_files, "/models/manual.tif")
+    href_qa60 <- paste0(local_folder_files, "/models/qa60.tif")
+    href_s2cloudness <- paste0(local_folder_files, "/models/s2cloudness.tif")
+    href_sen2cor <- paste0(local_folder_files, "/models/sen2cor.tif")
+    href_siam <- paste0(local_folder_files, "/models/siam.tif")
+
+    final_json <- list(
+      id = id_f,
+      type = "Feature",
+      collection = "cloudsen12",
+      links = list(),
+      geometry = geometry_f,
+      properties = final_json_properties,
+      assets = list(
+        thumbnail = list(
+          type = "image/tiff; application=geotiff; profile=cloud-optimized",
+          href = href_thumbnail,
+          title = "Thumbnail image - COG"
+        ),
+        fmask = list(
+          type = "image/tiff; application=geotiff; profile=cloud-optimized",
+          href = href_fmask,
+          title = "Fmask label - COG"
+        ),
+        iplcloud = list(
+          type = "image/tiff; application=geotiff; profile=cloud-optimized",
+          href = href_iplcloud,
+          title = "IPLcloud label - COG"
+        ),
+        manual = list(
+          type = "image/tiff; application=geotiff; profile=cloud-optimized",
+          href = href_manual,
+          title = "manual label - COG"
+        ),
+        qa60 = list(
+          type = "image/tiff; application=geotiff; profile=cloud-optimized",
+          href = href_qa60,
+          title = "qa60 label - COG"
+        ),
+        s2cloudness = list(
+          type = "image/tiff; application=geotiff; profile=cloud-optimized",
+          href = href_s2cloudness,
+          title = "s2cloudness label - COG"
+        ),
+        sen2cor = list(
+          type = "image/tiff; application=geotiff; profile=cloud-optimized",
+          href = href_sen2cor,
+          title = "sen2cor label - COG"
+        ),
+        siam = list(
+          type = "image/tiff; application=geotiff; profile=cloud-optimized",
+          href = href_siam,
+          title = "siam label - COG"
+        )
+      ),
+      bbox = bbox_f,
+      stac_extensions = list("proj", "view"),
+      stac_version = "1.0.0-beta.2"
+    )
+
+    # Create a directory
+    folder_f <- sprintf("%s/%s/",output, point)
+    dir.create(
+      path = folder_f,
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    # Write final JSON :)
+    jsonlite::write_json(
+      x = final_json,
+      path = sprintf("%s/%s.json", folder_f, sentinel2_product_id_gee),
+      pretty = TRUE,
+      auto_unbox = TRUE
+    )
+  }
+}
+
+#' Upgrade asset in Item STAC
+upgrade_link_drive <- function(point, output) {
+  # sentinel1_product_id
+  metadata_name <- paste0("metadata_", strsplit(point, "_")[[1]][2], ".json")
+  json_file <- googledrive::drive_ls(
+    path = as_id("1fBGAjZkjPEpPr0p7c-LtJmfbLq3s87RK"),
+    q = sprintf("name contains '%s'", metadata_name)
+  ) %>% googledrive::drive_download(path = tempfile())
+  jsonfile_r <- jsonlite::read_json(json_file$local_path)
+  s2_ids <- names(jsonfile_r[grepl("^[0-9]", names(jsonfile_r))])
+
+  # Folder to find Public links (CSAYBAR FOLDER)
+  files_points_general <- googledrive::drive_ls(
+    path = as_id("1tcFgbP3SLovBy3UNs7OPMWNOO5PuiCuP"),
+    q = sprintf("name contains '%s'", point)
+  )
+  files_specific_folder <- googledrive::drive_ls(
+    path = files_points_general
+  )
+
+
+  index <- 3
+  for (index in 1:5) {
+    jsfile <- jsonlite::read_json(
+      path = sprintf("%s/jsons/%s/%s.json",output, point, s2_ids[index])
+    )
+
+    # assets
+    image_in_drive <- files_specific_folder[files_specific_folder$name %in% s2_ids[index],]
+    image_files <- drive_ls(image_in_drive, recursive = TRUE)
+
+    # Remove ---------
+    href_thumbnail_img <- image_files[image_files$name %in% "thumbnail.tif",]
+    href_thumbnail <- sprintf("https://drive.google.com/uc?id=%s&export=download", href_thumbnail_img$id)
+
+    href_fmask_img <- image_files[image_files$name %in% "fmask.tif",]
+    href_fmask <- sprintf("https://drive.google.com/uc?id=%s&export=download", href_fmask_img$id)
+
+    href_iplcloud_img <- image_files[image_files$name %in% "iplcloud.tif",]
+    href_iplcloud <- sprintf("https://drive.google.com/uc?id=%s&export=download", href_iplcloud_img$id)
+
+    href_manual_img <- image_files[image_files$name %in% "manual.tif",]
+    href_manual <- sprintf("https://drive.google.com/uc?id=%s&export=download", href_manual_img$id)
+
+    href_qa60_img <-  image_files[image_files$name %in% "qa60.tif",]
+    href_qa60 <- sprintf("https://drive.google.com/uc?id=%s&export=download", href_qa60_img$id)
+
+    href_s2cloudness_img <- image_files[image_files$name %in% "s2cloudness.tif",]
+    href_s2cloudness <- sprintf("https://drive.google.com/uc?id=%s&export=download", href_s2cloudness_img$id)
+
+    href_sen2cor_img <- image_files[image_files$name %in% "sen2cor.tif",]
+    href_sen2cor <- sprintf("https://drive.google.com/uc?id=%s&export=download", href_sen2cor_img$id)
+
+    href_siam_img <-  image_files[image_files$name %in% "siam.tif",]
+    href_siam <- sprintf("https://drive.google.com/uc?id=%s&export=download", href_siam_img$id)
+
+    # upgrade json
+    jsfile$assets$thumbnail$href <- href_thumbnail
+    jsfile$assets$fmask$href <- href_fmask
+    jsfile$assets$iplcloud$href <- href_iplcloud
+    jsfile$assets$manual$href <- href_manual
+    jsfile$assets$qa60$href <- href_qa60
+    jsfile$assets$s2cloudness$href <- href_s2cloudness
+    jsfile$assets$sen2cor$href <- href_sen2cor
+    jsfile$assets$siam$href <- href_siam
+
+    # Write final JSON :)
+    jsonlite::write_json(
+      x = jsfile,
+      path = sprintf("%s/jsons/%s/%s.json",output, point, s2_ids[index]),
+      pretty = TRUE,
+      auto_unbox = TRUE
+    )
+  }
+}
+
+
+# FeatureCollection Creator
+stac_featurecollection_creator <- function(json_list, outputfile) {
+  fc_f <- list(
+    type = "FeatureCollection",
+    features = lapply(json_list, jsonlite::read_json)
+  )
+  # Write final JSON :)
+  jsonlite::write_json(
+    x = fc_f,
+    path = outputfile,
+    pretty = TRUE,
+    auto_unbox = TRUE
+  )
+}
+
+
+# DB migration batch
+db_migration_batch <- function(points, output) {
+  # Create folder
+  if (!dir.exists(output)) {
+    dir.create(path = paste0(output, "/points"), recursive = TRUE, showWarnings = TRUE)
+  }
+  for (index in points) {
+    message(sprintf("Working in the Point_%04d :D", index))
+    point <- sprintf("Point_%04d", index)
+    try(db_migration(point = point, output = sprintf("%s/%s", output, "points")))
+  }
+}
+
+# STAC features creator
+stac_feature_creator_batch <- function(points, potencial_points, output) {
+  output <- sprintf("%s/%s", output, "jsons")
+  # Create folder
+  if (!dir.exists(output)) {
+    dir.create(path = output, recursive = TRUE, showWarnings = TRUE)
+  }
+
+  for (index in points) {
+    message(sprintf("Working with STAC :D --- Point_%04d", index))
+    point <- sprintf("Point_%04d", index)
+    try(
+      stac_feature_creator(
+        point = point,
+        potencial_points = potencial_points,
+        output = output
+      )
+    )
   }
 }
