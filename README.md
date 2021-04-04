@@ -4,7 +4,7 @@
   <br>    
 </h1>
 
-<h3 align="center">CloudSEN12 a global benchmark dataset in cloud semantic understanding</h3>
+<h3 align="center">CloudSEN12 a global benchmark dataset for cloud semantic understanding</h3>
 
 <p align="center">  
   • 
