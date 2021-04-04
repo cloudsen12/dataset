@@ -4,7 +4,7 @@
   <br>    
 </h1>
 
-<h3 align="center">CloudSEN12 a global benchmark dataset for cloud semantic understanding</h3>
+<h2 align="center">CloudSEN12 a global benchmark dataset for cloud semantic understanding</h2>
 
 <p align="center">  
   • 
@@ -15,8 +15,13 @@
 </p>
 
 
-Official folder link:
-https://drive.google.com/drive/u/1/folders/1aTPIZ974zvtti6a02eiMyZaIf_Rp8QEc
+## Introduction
+
+## Metodology
+
+## Citation 
+
+## Credits
 
 
 
