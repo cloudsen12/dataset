@@ -19,13 +19,13 @@
 
 ## Metodology
 
+<center>
+  <br>
+    <img src=https://user-images.githubusercontent.com/54723897/113518868-36f4c080-9589-11eb-94f4-93ba4cab3c05.png>
+  <br>    
+</center>
+
 ## Citation 
 
 ## Credits
-
-
-
-
-
-
 
