@@ -16,7 +16,7 @@
 
 ## Why we need another cloud detection dataset?
 
-In the last years, we have witnessed the success of deep learning in semantic segmentation thanks to the availability of large-scale human-annotated datasets such as [**Cityscapes**](https://www.cityscapes-dataset.com/). However, in earth observation, more concretely in **cloud detection**, this revolution and remarkable gain in model efficiency have not happened yet.  Although many factors may be related to this, dataset availability is by far the central dilemma. In our best understanding, current cloud detection datasets experience some of these following deficiencies:
+In the last years, we have witnessed the success of deep learning in semantic segmentation thanks to the availability of large-scale human-annotated datasets such as [**Cityscapes**](https://www.cityscapes-dataset.com/). However, in earth observation, more concretely in **cloud detection**, this revolution and remarkable gain in model efficiency have not happened yet.  Although many factors may be related to this, dataset availability is by far the central dilemma. To the best of our knowledge, current cloud detection datasets have some of these shortcomings:
 
 - Regional spatial coverage.
 - Lack of annotation richness.
@@ -26,16 +26,15 @@ In the last years, we have witnessed the success of deep learning in semantic se
 - Only designed to support standard supervised learning.
 - Absence of a criteria of what we should to considerate as a cloud.
 
-## What is the main goal of cloudSEN12?
-
-
-### Some characteristics
-
+## cloudSEN12 characteristics
+	
+- Provide 20 features, including SAR and multispectral data.
+- Fifty thousand globally distributed image patches (511 x 511).
+- Three different types of manual labeling: high-quality labels, scrabble labeling, and no labeling.
+- Each image has the result of seven state-of-the-art cloud detection algorithm.
+- Supports standard supervised learning and generalizations like weakly supervision, semi-supervised learning, few-shot learning, and novel approaches based on SAR-to-Optical image fusion.
+- Freely available with love <3 using the STAC specification.
 - 50 000 image patches (511 x 511) globally distributed.
-- 
-
-Exploiting the ready-to-use and freely data offering for Google Earth Engine we will create CloudSEN12, a new large dataset to advance deep learning research in cloud detection. CloudSEN12 will contain 25 000 globally distributed image patches (511x511 pixels) including (1) Sentinel-1 dual-pol synthetic aperture radar data, (2) Sentinel-2 multi-spectral data, (3) auxiliary remote sensed data, (4) hand-crafted labeling, and (5) the results from seven state-of-the-art cloud detection algorithms. The data set will be publicly available at https://console.cloud.google.com/storage/browser/cloudsen12 and contributions of novel methods are welcome to continuously providing a state-of-the-art benchmark dataset for cloud segmentation.
-
 
 
 ## Metodology
