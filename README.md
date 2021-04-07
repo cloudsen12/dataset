@@ -41,9 +41,10 @@ In the last years, we have witnessed the success of deep learning in semantic se
 
 <center>
   <br>
-    <img src=https://user-images.githubusercontent.com/54723897/113933190-90145c80-97f4-11eb-8b52-584826d67cf3.png>
+    <img src=https://user-images.githubusercontent.com/54723897/113933464-eb464f00-97f4-11eb-95a7-26ec235c47c9.png>
   <br>    
 </center>
+
 
 ## Citation 
 
