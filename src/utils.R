@@ -330,31 +330,32 @@ dataset_creator_chips <- function(jsonfile,
 
   row_position <- gsub("point_", "", point_name) %>% as.numeric()
   labelers_names <- c("Jhomira", "Fernando", "Eduardo")
-  # point_metadata
-  df_final <- data_frame(
-    id = sprintf("%s_%02d", point_name, 1:5),
-    labeler = sp_db[row_position,]$labeler,
-    type = sp_db[row_position,]$label,
-    difficulty = NA,
-    sen2_id = s2_ids,
-    sen2_date = s2_dates,
-    sen1_id = s1_ids,
-    s1_date = s1_dates,
-    sen1_area = s1_area_per,
-    land_use = land_use,
-    elevation = elevation,
-    shadow_dir = shadow_dir,
-    split = NA,
-    state = FALSE,
-    evaluation_I = sp_db[row_position,]$validator,
-    evaluation_II = labelers_names[!(labelers_names %in% c(sp_db[row_position,]$validator, sp_db[row_position,]$labeler))],
-    evaluation_Expert = FALSE
-  )
 
-  write_csv(
-    x = df_final,
-    file = sprintf("%s/%s_metadata.csv", dirname(metadata_main), point_name)
-  )
+  # point_metadata
+  # df_final <- data_frame(
+  #   id = sprintf("%s_%02d", point_name, 1:5),
+  #   labeler = sp_db[row_position,]$labeler,
+  #   type = sp_db[row_position,]$label,
+  #   difficulty = NA,
+  #   sen2_id = s2_ids,
+  #   sen2_date = s2_dates,
+  #   sen1_id = s1_ids,
+  #   s1_date = s1_dates,
+  #   sen1_area = s1_area_per,
+  #   land_use = land_use,
+  #   elevation = elevation,
+  #   shadow_dir = shadow_dir,
+  #   split = NA,
+  #   state = FALSE,
+  #   evaluation_I = sp_db[row_position,]$validator,
+  #   evaluation_II = labelers_names[!(labelers_names %in% c(sp_db[row_position,]$validator, sp_db[row_position,]$labeler))],
+  #   evaluation_Expert = FALSE
+  # )
+  #
+  # write_csv(
+  #   x = df_final,
+  #   file = sprintf("%s/%s_metadata.csv", dirname(metadata_main), point_name)
+  # )
 
   # 5. Save geometry
   roi <- extent(final_stack[[1]]) %>%
@@ -2837,8 +2838,6 @@ upgrade_link_drive <- function(point, output) {
     path = files_points_general
   )
 
-
-  index <- 3
   for (index in 1:5) {
     jsfile <- jsonlite::read_json(
       path = sprintf("%s/jsons/%s/%s.json",output, point, s2_ids[index])
@@ -2893,6 +2892,14 @@ upgrade_link_drive <- function(point, output) {
   }
 }
 
+
+#' Upgrade asset in Item STAC
+upgrade_link_gcs <- function(json_file, gcs_container, local_container) {
+  chr_files  <- readLines(json_file)
+  tx2  <- gsub(pattern = local_container, replace = gcs_container, x = chr_files)
+  writeLines(text = tx2, con = json_file)
+  invisible(TRUE)
+}
 
 # FeatureCollection Creator
 stac_featurecollection_creator <- function(json_list, outputfile) {
