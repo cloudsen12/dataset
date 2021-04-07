@@ -9,7 +9,7 @@
 <p align="center">  
   • 
   <a href="#why-we-need-another-cloud-detection-dataset">Why we need another cloud detection dataset?</a> &nbsp;•  
-  <a href="#metodology">Metodology</a> &nbsp;•
+  <a href="#characteristics">Characteristics</a> &nbsp;•
   <a href="#citation">Citation</a> &nbsp;•
   <a href="#credits">Credits</a>  
 </p>
@@ -26,7 +26,7 @@ In the last years, we have witnessed the success of deep learning in semantic se
 - Only designed to support standard supervised learning.
 - Absence of a criteria of what we should to considerate as a cloud.
 
-## cloudSEN12 characteristics
+## Characteristics
 	
 - Provide 20 features, including SAR and multispectral data.
 - Fifty thousand globally distributed image patches (511 x 511).
