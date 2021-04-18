@@ -1425,45 +1425,45 @@ generate_preview <- function() {
 }
 
 
-#' Download labelers
-#' @noRd
-download_labels <- function(point) {
-  # 1. List files (Get SENTINEL_2 ID)
-  point_name <- point
-
-  # 2. Create dir
-  dir.create(
-    path = sprintf("../%s/%s.iris/segmentation", point, point),
-    showWarnings = FALSE,
-    recursive = TRUE
-  )
-
-
-  # 2. Points Google Drive ID
-  files_points_general <- googledrive::drive_ls(
-    path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
-    q = sprintf("name contains '%s'", point_name)
-  )
-
-  # 3. Files inside the folder in GoogleDrive
-  files_points <- googledrive::drive_ls(
-    path = as_id(files_points_general$id)
-  )
-
-  zip_files <- files_points[files_points$name == paste0(point_name, ".zip"),]$id
-
-  drive_download(
-    file = as_id(zip_files),
-    path = paste0(point_name, ".zip"),
-    overwrite = TRUE
-  )
-
-  # 4. Unzip file
-  zip::unzip(
-    zipfile = paste0(point_name, ".zip"),
-    exdir = sprintf("../%s", point)
-  )
-}
+#' #' Download labelers
+#' #' @noRd
+#' download_labels <- function(point) {
+#'   # 1. List files (Get SENTINEL_2 ID)
+#'   point_name <- point
+#'
+#'   # 2. Create dir
+#'   dir.create(
+#'     path = sprintf("../%s/%s.iris/segmentation", point, point),
+#'     showWarnings = FALSE,
+#'     recursive = TRUE
+#'   )
+#'
+#'
+#'   # 2. Points Google Drive ID
+#'   files_points_general <- googledrive::drive_ls(
+#'     path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
+#'     q = sprintf("name contains '%s'", point_name)
+#'   )
+#'
+#'   # 3. Files inside the folder in GoogleDrive
+#'   files_points <- googledrive::drive_ls(
+#'     path = as_id(files_points_general$id)
+#'   )
+#'
+#'   zip_files <- files_points[files_points$name == paste0(point_name, ".zip"),]$id
+#'
+#'   drive_download(
+#'     file = as_id(zip_files),
+#'     path = paste0(point_name, ".zip"),
+#'     overwrite = TRUE
+#'   )
+#'
+#'   # 4. Unzip file
+#'   zip::unzip(
+#'     zipfile = paste0(point_name, ".zip"),
+#'     exdir = sprintf("../%s", point)
+#'   )
+#' }
 
 
 # Download viz
@@ -1884,31 +1884,30 @@ generate_preview <- function() {
 }
 
 # Download labelers
-download_labels <- function() {
-  # 1. List files (Get SENTINEL_2 ID)
-  point_name <- gsub("\\.gpkg$", "",list.files(pattern = "\\.gpkg$"))
-
-  # 2. Points Google Drive ID
-  files_points_general <- googledrive::drive_ls(
-    path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
-    q = sprintf("name contains '%s'", point_name)
-  )
-
-  # 3. Files inside the folder in GoogleDrive
-  files_points <- googledrive::drive_ls(
-    path = as_id(files_points_general$id)
-  )
-  zip_files <- files_points[files_points$name == paste0(point_name, ".zip"),]$id
-  drive_download(
-    file = as_id(zip_files),
-    path = paste0(point_name, ".zip"),
-    overwrite = TRUE
-  )
-
-  # 4. Unzip file
-  unzip(paste0(point_name, ".zip"))
-}
-
+# download_labels <- function() {
+#   # 1. List files (Get SENTINEL_2 ID)
+#   point_name <- gsub("\\.gpkg$", "",list.files(pattern = "\\.gpkg$"))
+#
+#   # 2. Points Google Drive ID
+#   files_points_general <- googledrive::drive_ls(
+#     path = as_id("1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"),
+#     q = sprintf("name contains '%s'", point_name)
+#   )
+#
+#   # 3. Files inside the folder in GoogleDrive
+#   files_points <- googledrive::drive_ls(
+#     path = as_id(files_points_general$id)
+#   )
+#   zip_files <- files_points[files_points$name == paste0(point_name, ".zip"),]$id
+#   drive_download(
+#     file = as_id(zip_files),
+#     path = paste0(point_name, ".zip"),
+#     overwrite = TRUE
+#   )
+#
+#   # 4. Unzip file
+#   unzip(paste0(point_name, ".zip"))
+# }
 
 # Full download images
 download_cloudSEN12_images <- function(points, local_cloudsen2_points, output) {
@@ -1942,12 +1941,14 @@ select_dataset_thumbnail_creator_batch <- function(points,
                                                    output = "results/") {
   for (index in points) {
     cloudsen2_row <- local_cloudsen2_points[index,]
-    select_dataset_thumbnail_creator(
-      cloudsen2_row = cloudsen2_row,
-      n_images = n_images,
-      kernel_size = kernel_size,
-      data_range = data_range,
-      output = output
+    try(
+      select_dataset_thumbnail_creator(
+        cloudsen2_row = cloudsen2_row,
+        n_images = n_images,
+        kernel_size = kernel_size,
+        data_range = data_range,
+        output = output
+      )
     )
   }
 }
@@ -2048,8 +2049,12 @@ files_target_final_creator <- function(files_target_files, s2_id, point) {
   from_TIFF_to_COG(files_target_files[["sen2cor_real"]], sen2cor_file)
 
   # manual
-  manual_file <- sprintf("%s.tif", tempfile())
-  from_TIFF_to_COG(files_target_files[["manual"]], manual_file)
+  if (is.null(files_target_files[["manual"]])) {
+    message("no manual :c")
+  } else {
+    manual_file <- sprintf("%s.tif", tempfile())
+    from_TIFF_to_COG(files_target_files[["manual"]], manual_file)
+  }
 
   # IPLcloud
   inIPLcloud <- sprintf("%s.tif", tempfile())
@@ -2096,31 +2101,35 @@ files_target_final_creator <- function(files_target_files, s2_id, point) {
     path = as_id("1DV7jPg5jyxc58GdbK18LueQ1c_ksHxem"),
     q = sprintf("name contains '%s'", point)
   )
-  files_s2_files <- googledrive::drive_ls(
-    path = as_id(files_points_general$id)
-  )
-  drive_download(
-    file = files_s2_files[grepl(s2_id, files_s2_files$name), ],
-    path = inFMASK
-  )
-  from_TIFF_to_COG(inFMASK, outFMASK)
+  if (nrow(files_points_general) == 0) {
+    outFMASK
+  } else {
+    files_s2_files <- googledrive::drive_ls(
+      path = as_id(files_points_general$id)
+    )
+    drive_download(
+      file = files_s2_files[grepl(s2_id, files_s2_files$name), ],
+      path = inFMASK
+    )
+    from_TIFF_to_COG(inFMASK, outFMASK)
+  }
 
   # SIAM
-  inSIAM <- sprintf("%s.tif", tempfile())
-  outSIAM <- sprintf("%s.tif", tempfile())
-
-  files_points_general <- googledrive::drive_ls(
-    path = as_id("1DXDzgX91PkGjYXg5HZfE1QEeDaVjm6kU"),
-    q = sprintf("name contains '%s'", point)
-  )
-  files_s2_files <- googledrive::drive_ls(
-    path = as_id(files_points_general$id)
-  )
-  drive_download(
-    file = files_s2_files[grepl(s2_id, files_s2_files$name), ],
-    path = inSIAM
-  )
-  from_TIFF_to_COG(inSIAM, outSIAM)
+  # inSIAM <- sprintf("%s.tif", tempfile())
+  # outSIAM <- sprintf("%s.tif", tempfile())
+  #
+  # files_points_general <- googledrive::drive_ls(
+  #   path = as_id("1DXDzgX91PkGjYXg5HZfE1QEeDaVjm6kU"),
+  #   q = sprintf("name contains '%s'", point)
+  # )
+  # files_s2_files <- googledrive::drive_ls(
+  #   path = as_id(files_points_general$id)
+  # )
+  # drive_download(
+  #   file = files_s2_files[grepl(s2_id, files_s2_files$name), ],
+  #   path = inSIAM
+  # )
+  # from_TIFF_to_COG(inSIAM, outSIAM)
 
   list(
     manual = manual_file,
@@ -2128,8 +2137,8 @@ files_target_final_creator <- function(files_target_files, s2_id, point) {
     sen2cor = sen2cor_file,
     iplcloud = outIPLcloud,
     qa60 = outQAbands,
-    fmask = outFMASK,
-    siam = outSIAM
+    fmask = outFMASK#,
+    #siam = outSIAM
   )
 }
 
@@ -2241,8 +2250,16 @@ download_labels <- function(files_target_image) {
     list_manual[[fn_name]] <- file_tif
   }
 
+  if (is.null(list_manual[["manual"]])) {
+    baseRaster <- raster(list_manual[["s2cloudness_prob"]])
+    baseRaster[] <- NA
+    ipl_temp <- paste0(tempfile(), ".tif")
+    writeRaster(baseRaster, ipl_temp)
+    list_manual[["manual"]] <- ipl_temp
+  }
+
   if (is.null(list_manual[["IPL_cloudmask_reclass"]])) {
-    baseRaster <- raster(list_manual[["manual"]])
+    baseRaster <- raster(list_manual[["s2cloudness_prob"]])
     baseRaster[] <- NA
     ipl_temp <- paste0(tempfile(), ".tif")
     writeRaster(baseRaster, ipl_temp)
@@ -2252,10 +2269,18 @@ download_labels <- function(files_target_image) {
 }
 
 #' DataBase Migration
-db_migration <- function(point, output) {
-
+db_migration <- function(point, output, type = "high_quality") {
+  gd_id <- if (label_type == "high_quality") {
+    "1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"
+  } else if (label_type == "scribble_annotation") {
+    "11IA41PXhhVlBImjJKdTDk_kUuNWSyV_P"
+  } else if (label_type == "no_annotation") {
+    "1LU0qaReNN_OQ4hCZ_gM9NLQCSYbZpf4L"
+  } else {
+    stop("gd_id error :(")
+  }
   # Point level (ROY FOLDER)
-  files_points <- list_point_folder(point_name = tolower(point))
+  files_points <- list_point_folder(point_name = tolower(point), gd_id = gd_id)
   files_points_only_img_folder <- files_points[grepl("^[0-9]", files_points$name),]
 
   # List each image
@@ -2270,17 +2295,28 @@ db_migration <- function(point, output) {
     files_target_folder <- list_target_image_folder(files_image_folder[files_image_folder$name == "target",])
 
     # Download target image (Roy Folder)
-    files_target_files <- download_labels(files_target_folder)
+    files_target_files <- download_labels(files_target_image = files_target_folder)
     manual_file <- files_target_files$manual
-    target_npy_temp <- create_final_target(raster(manual_file), paste0(tempfile(), ".npy"))
-    target_model_folder <- files_target_final_creator(files_target_files, s2_id, point)
+    if (is.null(manual_file)) {
+      message("we don't find manual target :(")
+    } else {
+      target_npy_temp <- create_final_target(raster(manual_file), paste0(tempfile(), ".npy"))
+    }
+    target_model_folder <- files_target_final_creator(
+      files_target_files = files_target_files,
+      s2_id = s2_id,
+      point = point
+    )
 
     # Input level (Roy Folder)
     files_input_folder <- list_target_image_folder(files_image_folder[files_image_folder$name == "input",])
     files_input_folder_no_b10_thershold <- files_input_folder %>%
       filter(name != "B10_threshold.tif")
     files_input_files <- download_input(files_input_folder_no_b10_thershold)
-    input_npy_temp <- create_npy_file(files_input_files, paste0(tempfile(), ".npy")) # Creat npy array (20x511x511)
+    input_npy_temp <- create_npy_file(
+      files_input_image_ls = files_input_files,
+      output =  paste0(tempfile(), ".npy")
+    ) # Creat npy array (20x511x511)
 
     # Thumbnails level (Roy Folder)
     thumbnails_image_list <- list_thumbnails_image_folder(files_image_folder[files_image_folder$name == "thumbnails",])
@@ -2302,11 +2338,13 @@ db_migration <- function(point, output) {
     )
 
     # save manual npy
-    file.copy(
-      from = target_npy_temp,
-      to = sprintf("%s/%s/%s/manual.npy",output, point, s2_id),
-      overwrite = TRUE
-    )
+    if (is.null(manual_file)) {
+      file.copy(
+        from = target_npy_temp,
+        to = sprintf("%s/%s/%s/manual.npy",output, point, s2_id),
+        overwrite = TRUE
+      )
+    }
 
     # save input npy
     file.copy(
@@ -2497,6 +2535,24 @@ stac_feature_creator <- function(point,  potencial_points, output = output) {
     # iplcloud_method
     iplcloud_method <- "persistence"
 
+    # iplcloud_exist
+    manual_base_file <- sprintf(
+      "%s/points/%s/%s/models/iplcloud.tif",
+      dirname(output), point, sentinel2_product_id_gee
+    ) %>% raster()
+    iplcloud_exist <- !all(is.na(getValues(manual_base_file)))
+
+    # manual_exist
+    manual_exist <- if (label_type == "high_quality") {
+      TRUE
+    } else if (label_type == "scribble_annotation") {
+      TRUE
+    } else if (label_type == "no_annotation") {
+      FALSE
+    } else {
+      stop("manual exist!")
+    }
+
     # cloud_thickness
     cloud_thickness <- jsonfile_r[[sentinel2_product_id_gee]][["cloud_thickness"]]
 
@@ -2679,6 +2735,8 @@ stac_feature_creator <- function(point,  potencial_points, output = output) {
       iplcloud_version = iplcloud_version,
       iplcloud_nimg = iplcloud_nimg,
       iplcloud_method = iplcloud_method,
+      iplcloud_exist = iplcloud_exist,
+      manual_exist = manual_exist,
       slc_processing_facility_name = slc_processing_facility_name,
       slc_processing_software_version = slc_processing_software_version,
       grd_post_processing_software_name = grd_post_processing_software_name,
@@ -2733,7 +2791,6 @@ stac_feature_creator <- function(point,  potencial_points, output = output) {
     bbox_f <- st_transform(sf_tile$geom, 4326) %>% st_bbox()
     attributes(bbox_f) <- NULL
 
-
     # Remove ---------
     local_folder_files <- sprintf("%s/points/%s/%s/", dirname(output), point, sentinel2_product_id_gee)
 
@@ -2744,7 +2801,6 @@ stac_feature_creator <- function(point,  potencial_points, output = output) {
     href_qa60 <- paste0(local_folder_files, "/models/qa60.tif")
     href_s2cloudness <- paste0(local_folder_files, "/models/s2cloudness.tif")
     href_sen2cor <- paste0(local_folder_files, "/models/sen2cor.tif")
-    href_siam <- paste0(local_folder_files, "/models/siam.tif")
 
     final_json <- list(
       id = id_f,
@@ -2788,11 +2844,6 @@ stac_feature_creator <- function(point,  potencial_points, output = output) {
           type = "image/tiff; application=geotiff; profile=cloud-optimized",
           href = href_sen2cor,
           title = "sen2cor label - COG"
-        ),
-        siam = list(
-          type = "image/tiff; application=geotiff; profile=cloud-optimized",
-          href = href_siam,
-          title = "siam label - COG"
         )
       ),
       bbox = bbox_f,
@@ -2918,7 +2969,7 @@ stac_featurecollection_creator <- function(json_list, outputfile) {
 
 
 # DB migration batch
-db_migration_batch <- function(points, output) {
+db_migration_batch <- function(points, output, local_cloudsen2_points) {
   # Create folder
   if (!dir.exists(output)) {
     dir.create(path = paste0(output, "/points"), recursive = TRUE, showWarnings = TRUE)
@@ -2926,7 +2977,13 @@ db_migration_batch <- function(points, output) {
   for (index in points) {
     message(sprintf("Working in the Point_%04d :D", index))
     point <- sprintf("Point_%04d", index)
-    try(db_migration(point = point, output = sprintf("%s/%s", output, "points")))
+    try(
+      db_migration(
+        point = point,
+        output = sprintf("%s/%s", output, "points"),
+        type = local_cloudsen2_points[index,]$label
+    )
+    )
   }
 }
 

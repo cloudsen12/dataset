@@ -79,10 +79,10 @@ download_cloudSEN12_images(
 # 6. Database migration, we restructured the database with a format easy to
 #    ingest into a deep learning model.
 db_migration_batch(
-  points = 1:12,
+  points = 1:1,
+  local_cloudsen2_points = local_cloudsen2_points,
   output = "/home/csaybar/cloudSEN12/"
 )
-
 
 # 7. Create STAC items (features) following the single file STAC Extension Specification
 # https://github.com/stac-extensions/single-file-stac
