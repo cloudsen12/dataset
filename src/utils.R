@@ -2343,7 +2343,7 @@ db_migration <- function(point, output, type = "high_quality") {
     )
 
     # save manual npy
-    if (is.null(manual_file)) {
+    if (!is.null(manual_file)) {
       file.copy(
         from = target_npy_temp,
         to = sprintf("%s/%s/%s/manual.npy",output, point, s2_id),
