@@ -2157,6 +2157,7 @@ create_final_target <- function(x, output) {
   stk_stars <- stack(clear, thick_cloud, thin_cloud, shadow_cloud) %>%
     st_as_stars() %>%
     '[['("layer.1") %>%
+    np$moveaxis(2L, 0L) %>%
     np$save(output, .)
   output
 }
@@ -2175,6 +2176,7 @@ create_npy_file <- function(files_input_image_ls, output) {
     read_stars() %>%
     merge() %>%
     '[['("X") %>%
+    np$moveaxis(2L, 0L) %>%
     np$save(output, .)
   output
 }
@@ -2270,11 +2272,11 @@ download_labels <- function(files_target_image) {
 
 #' DataBase Migration
 db_migration <- function(point, output, type = "high_quality") {
-  gd_id <- if (label_type == "high_quality") {
+  gd_id <- if (type == "high_quality") {
     "1BeVp0i-dGSuBqCQgdGZVDj4qzX1ms7L6"
-  } else if (label_type == "scribble_annotation") {
+  } else if (type == "scribble_annotation") {
     "11IA41PXhhVlBImjJKdTDk_kUuNWSyV_P"
-  } else if (label_type == "no_annotation") {
+  } else if (type == "no_annotation") {
     "1LU0qaReNN_OQ4hCZ_gM9NLQCSYbZpf4L"
   } else {
     stop("gd_id error :(")
@@ -2300,7 +2302,10 @@ db_migration <- function(point, output, type = "high_quality") {
     if (is.null(manual_file)) {
       message("we don't find manual target :(")
     } else {
-      target_npy_temp <- create_final_target(raster(manual_file), paste0(tempfile(), ".npy"))
+      target_npy_temp <- create_final_target(
+        x = raster(manual_file),
+        output =  paste0(tempfile(), ".npy")
+      )
     }
     target_model_folder <- files_target_final_creator(
       files_target_files = files_target_files,
@@ -2982,7 +2987,7 @@ db_migration_batch <- function(points, output, local_cloudsen2_points) {
         point = point,
         output = sprintf("%s/%s", output, "points"),
         type = local_cloudsen2_points[index,]$label
-    )
+      )
     )
   }
 }
