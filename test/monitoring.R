@@ -37,7 +37,7 @@ tile_monitoring <- function() {
 hqlabels_monitoring <- function() {
   xls <- read_sheet(
     ss = as_sheets_id("1LpW9JY2BdhlQvAObD1BCzoBiliNRnU3fCRWMQJFRvoM"),
-    range = "A1:F5000"
+    range = "A1:F7000"
   )
   xls_db <- xls %>%
     filter(labeler  %in%  c("Jhomira", "Eduardo", "Fernando")) %>%
