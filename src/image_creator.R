@@ -70,19 +70,26 @@ select_dataset_thumbnail_creator_batch(
 )
 
 # 5. Download all CLOUDSEN12 images with a format friendly with IRIS
+lost_points <- gsub("metadata_|.json", "", basename(read.csv("/home/csaybar/Desktop/lost_metadata.csv")$metadata_lost)) %>% as.numeric()
 download_cloudSEN12_images(
-  points = 455:1450,
+  points = lost_points,
   local_cloudsen2_points = local_cloudsen2_points,
   output = "/home/csaybar/Desktop/cloudsen12/"
 )
 
 # 6. Database migration, we restructured the database with a format easy to
 #    ingest into a deep learning model.
-db_migration_batch(
-  points = 1:11,
-  local_cloudsen2_points = local_cloudsen2_points,
-  output = "/home/csaybar/cloudSEN12/"
+db_migration_local_batch(
+  points = 1:2,
+  dataset_dir = "/media/csaybar/Elements SE/cloudSEN12/high/",
+  output = "/media/csaybar/Elements SE/cloudSEN12_f/high/"
 )
+# db_migration_manual_labeling()
+# db_migration_manual_fmask4()
+# db_migration_manual_maja()
+# db_migration_manual_unet()
+# db_migration_manual_lightgbm()
+
 
 # 7. Create STAC items (features) following the single file STAC Extension Specification
 # https://github.com/stac-extensions/single-file-stac

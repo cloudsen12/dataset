@@ -3012,3 +3012,115 @@ stac_feature_creator_batch <- function(points, potencial_points, output) {
     )
   }
 }
+
+
+# DB migration batch
+db_migration_local <- function(point, dataset_dir, output) {
+  message("Processing point: ", point)
+
+  # 1. Identify the point :)
+  point_dir <- sprintf("%s/point_%04d", dataset_dir, point)
+  point_dir_full_files <- list.files(point_dir, full.names = TRUE)
+  point <- basename(point_dir)
+
+
+  # 2. get only the folder with s2/s1 data :D
+  files_points_only_img_folder <- point_dir_full_files[grepl("^[0-9]", basename(point_dir_full_files))]
+  if (length(files_points_only_img_folder) != 5) {
+    stop("Initial regex condition fail :/")
+  }
+
+
+  # 3. Loop for each tile image in the same ROI
+  for (index in 1:5) {
+    # 4. List all the files in a specific S1/S2 folder
+    s2_id <- basename(files_points_only_img_folder[index])
+    full_files_tile <- list.files(files_points_only_img_folder[index], recursive = TRUE, full.names = TRUE)
+    if (length(full_files_tile) != 28) {
+      stop("the tile image folder should have 28 files.")
+    }
+    # 5. Create a new directory
+    dir.create(
+      path = sprintf("%s/%s/%s/models",output, point, s2_id),
+      recursive = TRUE,
+      showWarnings = FALSE
+    )
+
+    # 6. Copy files ;)
+
+    ## thumbnail
+    file.copy(
+      from = sprintf("%s/%s/%s/thumbnails/thumbnail.tif", dataset_dir, point, s2_id),
+      to = sprintf("%s/%s/%s/thumbnail.tif",output, point, s2_id),
+      overwrite = TRUE
+    )
+
+    ## sen2cor
+    file.copy(
+      from = sprintf("%s/%s/%s/target/sen2cor_real.tif", dataset_dir, point, s2_id),
+      to = sprintf("%s/%s/%s/models/sen2cor.tif", output, point, s2_id),
+      overwrite = TRUE
+    )
+
+    ## sen2cloudless
+    file.copy(
+      from = sprintf("%s/%s/%s/target/s2cloudness_prob.tif", dataset_dir, point, s2_id),
+      to = sprintf("%s/%s/%s/models/s2cloudless.tif", output, point, s2_id),
+      overwrite = TRUE
+    )
+
+    ## QA60
+    ref_file <- read_stars(sprintf("%s/%s/%s/models/s2cloudless.tif", output, point, s2_id))
+    sen2_q60 <- ee$Image(sprintf("COPERNICUS/S2/%s", s2_id))$select("QA60")
+    cloud_mask <- sen2_q60$remap(c(0L, 1024L, 2048L), c(0L, 1L, 2L))
+    rK <- 1000 # add generous margin
+    ref_bound <- (st_bbox(ref_file) + c(-rK, -rK, rK, rK)) %>% st_as_sfc()
+    rr1 <- ee_as_raster(
+      image = cloud_mask,
+      region = ref_bound %>% sf_as_ee()
+    )
+    tempfiletif1 <- sprintf("%s.tif", tempfile())
+    writeRaster(rr1, tempfiletif1)
+    tempfiletif2 <-  sprintf("%s.tif", tempfile())
+
+    system(
+      sprintf(
+        "gdalwarp %s %s -overwrite -te %s %s %s %s -tr 10 10",
+        tempfiletif1,
+        tempfiletif2,
+        as.numeric(st_bbox(ref_file))[1],
+        as.numeric(st_bbox(ref_file))[2],
+        as.numeric(st_bbox(ref_file))[3],
+        as.numeric(st_bbox(ref_file))[4]
+      )
+    )
+
+    file.copy(
+      from = tempfiletif2,
+      to = sprintf("%s/%s/%s/models/sen2L1CQA.tif", output, point, s2_id),
+      overwrite = TRUE
+    )
+
+    # 6. Generate input tensors :D
+    files_input_ffolder <- full_files_tile[grepl("input", full_files_tile)]
+    files_input_ffolder_nob10 <- files_input_ffolder[!basename(files_input_ffolder) %in% "B10_threshold.tif"]
+    names(files_input_ffolder_nob10) <- gsub("\\.tif$", "", basename(files_input_ffolder_nob10))
+
+    if (length(files_input_ffolder_nob10) != 20) {
+      stop("Something wrong happens when we try to create the tensor")
+    }
+    create_npy_file(
+      files_input_image_ls = files_input_ffolder_nob10,
+      output = sprintf("%s/%s/%s/input.npy", output, point, s2_id)
+    )
+  }
+}
+
+# DB migration batch
+db_migration_local_batch <- function(points, dataset_dir, output) {
+  # Create folder
+  for (point in points) {
+    message(sprintf("Working in the Point_%04d :D", point))
+    db_migration_local(point = point, dataset_dir = dataset_dir, output = output)
+  }
+}

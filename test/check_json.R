@@ -113,13 +113,13 @@ metadata_folder <- "metadata/"
 metadata_files <- list.files(metadata_folder, full.names = TRUE)
 index <- 874
 testing_json <- list()
+
 for (index in 1:length(metadata_files)) {
   print(index)
   httr::set_config(httr::config( ssl_verifypeer = 0L))
   httr::set_config(httr::config(http_version = 0))
   testing_json[[index]] <- try(full_test(metadata_files[[index]]))
 }
-
 
 total_db <- bind_rows(testing_json[which(!sapply(testing_json, function(x) class(x)[[1]] == "try-error"))])
 write_csv(
