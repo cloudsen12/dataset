@@ -3121,6 +3121,6 @@ db_migration_local_batch <- function(points, dataset_dir, output) {
   # Create folder
   for (point in points) {
     message(sprintf("Working in the Point_%04d :D", point))
-    db_migration_local(point = point, dataset_dir = dataset_dir, output = output)
+    try(db_migration_local(point = point, dataset_dir = dataset_dir, output = output))
   }
 }

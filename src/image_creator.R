@@ -79,11 +79,25 @@ download_cloudSEN12_images(
 
 # 6. Database migration, we restructured the database with a format easy to
 #    ingest into a deep learning model.
+to_migrate <- gsub("point_", "", list.files("/media/csaybar/Elements SE/cloudSEN12/high/")) %>% as.numeric()
+fpoints <- list.files("/media/csaybar/Elements SE/cloudSEN12_f/high/", full.names = TRUE)
+again_download <- list()
+counter <- 1
+for (index in seq_len(length(fpoints))) {
+  length_p <- length(list.files(fpoints[index], recursive = TRUE))
+  if (length_p != 25) {
+    again_download[[counter]]  = index
+    counter <- counter + 1
+  }
+}
+
+# again_download %>% as.numeric()
 db_migration_local_batch(
-  points = 1:2,
+  points = to_migrate[again_download %>% as.numeric()],
   dataset_dir = "/media/csaybar/Elements SE/cloudSEN12/high/",
   output = "/media/csaybar/Elements SE/cloudSEN12_f/high/"
 )
+
 # db_migration_manual_labeling()
 # db_migration_manual_fmask4()
 # db_migration_manual_maja()
