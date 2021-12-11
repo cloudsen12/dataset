@@ -47,6 +47,7 @@ hq_dataset <- function(point) {
     xname <- gsub("\\.png", "\\.tif", basename(x))
     writeRaster(rr, sprintf("%s/%s", DATASET_OUTPUT, xname), overwrite = TRUE)
   })
+  invisible(TRUE)
 }
 # ------------------------------------------------------------------------------
 
@@ -81,3 +82,5 @@ foreach(index = 1:length(points)) %dopar% {
   x <- hq_dataset(point = points[index])
 }
 
+
+zip("/home/csaybar/Desktop/high_quality.zip", list.files(DATASET_OUTPUT, full.names = TRUE), flags = "-j")
