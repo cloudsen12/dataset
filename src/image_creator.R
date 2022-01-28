@@ -44,22 +44,24 @@ rio <- import("rasterio")
 np <- import("numpy")
 
 # 3. Auxiliary functions
+setwd("/home/csaybar/Documents/Github/cloudsen12/dataset/")
 source("src/utils.R")
 
-# 2. Initialize Earth Engine, GD and GS4 (the user must have permission to write in csaybar and roy GD folder)
+# 4. Initialize Earth Engine, GD and GS4 (the user must have permission to write in csaybar and roy GD folder)
 # https://drive.google.com/drive/u/1/folders/1aTPIZ974zvtti6a02eiMyZaIf_Rp8QEc (ROY DRIVE)
 # https://drive.google.com/drive/u/0/folders/1tcFgbP3SLovBy3UNs7OPMWNOO5PuiCuP (CSAYBAR DRIVE)
 # https://console.cloud.google.com/storage/browser/cloudsen12 (CSAYBAR bucket)
 ee_Initialize("csaybar", drive = TRUE, gcs = TRUE)
-drive_auth("aybar1994@gmail.com")
-gs4_auth("aybar1994@gmail.com")
+drive_auth("csaybar@gmail.com")
+gs4_auth("csaybar@gmail.com")
 
 
-# 3. Load Potential points (points created with point_creator.R)
-local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points.geojson")
+
+# 5. Load Potential points (points created with point_creator.R)
+local_cloudsen2_points <- read_sf("data/cloudsen2_potential_points2.geojson")
 # tail(local_cloudsen2_points$label[1:1450],10)
 
-# 4. Tile selection on each point and image
+# 6. Tile selection on each point and image
 select_dataset_thumbnail_creator_batch(
   points = 6707:6777,
   local_cloudsen2_points = local_cloudsen2_points,
@@ -69,31 +71,23 @@ select_dataset_thumbnail_creator_batch(
   output = "/home/csaybar/cloudSEN12/"
 )
 
-# 5. Download all CLOUDSEN12 images with a format friendly with IRIS
-lost_points <- gsub("metadata_|.json", "", basename(read.csv("/home/csaybar/Desktop/lost_metadata.csv")$metadata_lost)) %>% as.numeric()
-download_cloudSEN12_images(
-  points = lost_points,
-  local_cloudsen2_points = local_cloudsen2_points,
-  output = "/home/csaybar/Desktop/cloudsen12/"
+# 7. Download all CLOUDSEN12 images with a format friendly with IRIS
+points_number <- gsub("metadata_|\\.json$", "", list.files("/home/csaybar/Desktop/extra/metadata/")) %>% as.numeric()
+system.time(
+  download_cloudSEN12_images(
+    points = points_number,
+    local_cloudsen2_points = local_cloudsen2_points,
+    output = "/home/csaybar/Desktop/extra/"
+  )
 )
 
 # 6. Database migration, we restructured the database with a format easy to
 #    ingest into a deep learning model.
-to_migrate <- gsub("point_", "", list.files("/media/csaybar/Elements SE/cloudSEN12/high/")) %>% as.numeric()
-fpoints <- list.files("/media/csaybar/Elements SE/cloudSEN12_f/high/", full.names = TRUE)
-again_download <- list()
-counter <- 1
-for (index in seq_len(length(fpoints))) {
-  length_p <- length(list.files(fpoints[index], recursive = TRUE))
-  if (length_p != 25) {
-    again_download[[counter]]  = index
-    counter <- counter + 1
-  }
-}
+to_migrate <- gsub("point_", "", list.files("/media/csaybar/Elements SE/cloudSEN12/high//")) %>% as.numeric()
 
 # again_download %>% as.numeric()
 db_migration_local_batch(
-  points = to_migrate[again_download %>% as.numeric()],
+  points = to_migrate,
   dataset_dir = "/media/csaybar/Elements SE/cloudSEN12/high/",
   output = "/media/csaybar/Elements SE/cloudSEN12_f/high/"
 )

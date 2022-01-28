@@ -1,7 +1,12 @@
 library(reprex)
+library(rgee)
 library(jsonlite)
 library(tidyverse)
 library(googledrive)
+library(sf)
+
+ee_Initialize("gabriela")
+
 
 # test01 -- JSON format --- we can read the JSON file?
 json_control_1 <- function(metadata_files) {
@@ -108,10 +113,18 @@ full_test <- function(json_name = "metadata/metadata_0001.json") {
 # TEST 05: Does the Sentinel2 ID malformed?
 
 #TEST ID
-setwd("/home/csaybar/Documents/Github/cloudsen12/dataset/")
+setwd("/home/csaybar/Desktop/extra/")
 metadata_folder <- "metadata/"
 metadata_files <- list.files(metadata_folder, full.names = TRUE)
-index <- 874
+
+
+fullpoints <- st_read("data/cloudsen2_potential_points.geojson")
+noannotation <- fullpoints[fullpoints$label == "no_annotation", ]
+
+all_mtd <- list.files("/home/csaybar/Downloads/metadata/", full.names = TRUE)
+allmetadata <- gsub("metadata_|\\.json", "", basename(all_mtd)) %>% as.numeric()
+metadata_files <- all_mtd[allmetadata %in% noannotation$id]
+
 testing_json <- list()
 
 for (index in 1:length(metadata_files)) {
@@ -124,7 +137,8 @@ for (index in 1:length(metadata_files)) {
 total_db <- bind_rows(testing_json[which(!sapply(testing_json, function(x) class(x)[[1]] == "try-error"))])
 write_csv(
   x = total_db %>% filter(test_01 == TRUE | test_02 == TRUE | test_04 == TRUE | test_05 == TRUE),
-  file =  "/home/csaybar/Desktop/db.csv"
+  file =  "/home/csaybar/Desktop/db2.csv"
 )
+
 
 

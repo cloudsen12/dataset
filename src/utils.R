@@ -150,6 +150,7 @@ select_dataset_thumbnail_creator <- function(cloudsen2_row,
 dataset_creator_chips <- function(jsonfile,
                                   sp_db,
                                   kernel_size = c(255, 255),
+                                  gcs_bucket = NULL,
                                   output_final = "cloudsen12/") {
   point_name <- paste0("point_", gsub("[a-zA-Z]|_|\\.","", basename(jsonfile)))
 
@@ -168,28 +169,17 @@ dataset_creator_chips <- function(jsonfile,
 
   # 4. Download each image for the specified point
   counter <- 0
-  s2_dates <- rep(NA,5)
-  s1_dates <- rep(NA,5)
-  s1_ids <- rep(NA,5)
-  s1_area_per <- rep(NA,5)
-  land_use <- rep(NA,5)
-  elevation <- rep(NA,5)
-  shadow_dir <- rep(NA,5)
-
   for (s2_id in s2_ids) {
     message(sprintf("Downloading: %s", s2_id))
 
     # 4.1 S2 ID and dates
     s2_img <- ee$Image(s2_id)
     s2_date <- ee_get_date_img(s2_img)[["time_start"]]
-    s2_dates[counter + 1] <- s2_date %>% as.character()
 
     # 4.2 S1 ID
     s1_id <- ee_get_s1(point = ee_point, s2_date = s2_date)
     s1_img <- ee$Image(s1_id)
     s1_date <- ee_get_date_img(s1_img)[["time_start"]]
-    s1_ids[counter + 1] <- s1_id
-    s1_dates[counter + 1] <- s1_date %>% as.character()
 
     # 4.3 Create an Image collection with S2, S1 and cloud mask information
     s2_s1_img <- ee_merge_s2_full(s2_id, s1_id, s2_date)
@@ -198,23 +188,7 @@ dataset_creator_chips <- function(jsonfile,
     s2_fullinfo <- s2_s1_img %>%
       ee$Image$addBands(shadow_direction(image = s2_img))
 
-    # 4.5 IPL_UV algorithm ... exist enough images?
-    IPL_multitemporal_cloud_logical <- ee_upl_cloud_logical(
-      sen2id = basename(s2_id),
-      roi =  s2_img$geometry()
-    )
-
-    # 4.6 If IPL_multitemporal_cloud_logical is TRUE add to the EE dataset
-    if (IPL_multitemporal_cloud_logical) {
-      IPL_multitemporal_cloud <- ee_upl_cloud(
-        sen2id = basename(s2_id),
-        roi =  s2_img$geometry()
-      ) %>% ee$Image$unmask(-99, sameFootprint = FALSE)
-      s2_fullinfo <- s2_fullinfo %>%
-        ee$Image$addBands(IPL_multitemporal_cloud)
-    }
-
-    # 4.7 Create a 511x511 tile (list -> data_frame -> sp -> raster)
+    # 4.5 Create a 511x511 tile (list -> data_frame -> sp -> raster)
     band_names <- c(s2_fullinfo$bandNames()$getInfo(), "x", "y")
     s2_img_array <- s2_fullinfo$addBands(s1_img) %>%
       ee$Image$addBands(ee$Image$pixelCoordinates(projection = crs_kernel)) %>%
@@ -242,22 +216,7 @@ dataset_creator_chips <- function(jsonfile,
     # 4.8 Add 360 if shadow direction is negative
     final_stack[[24]] <- fix_shadow_direction(final_stack[[24]])
 
-    # 4.9 Estimate dataset_values
-    ## s1_area_per
-    s1_raster_values <- getValues(final_stack[[16]])
-    na_pixels <- sum(is.na(s1_raster_values))
-    n99_pixels <- sum(s1_raster_values == -99, na.rm = TRUE)
-    s1_area <- 100 - (na_pixels + n99_pixels)/ncell(s1_raster_values)*100
-    s1_area_per[counter + 1] <- round(s1_area, 2)
-    ## landuse
-    land_use[counter + 1] <- Modes(getValues(final_stack[[23]]))
-    ## elevation
-    elevation[counter + 1] <- round(mean(getValues(final_stack[[22]])), 2)
-    ## shadow direction
-    shadow_dir[counter + 1] <- round(mean(getValues(final_stack[[24]])), 2)
-
-
-    # 4.8 Prepare folders for iris
+    # 4.9 Prepare folders for iris
     output_final_d <- sprintf("%s/dataset", output_final)
     output_final_folder <- sprintf("%s/dataset/%s/%s", output_final, point_name, basename(s2_id))
 
@@ -307,7 +266,6 @@ dataset_creator_chips <- function(jsonfile,
     # 25 -> IPL_cloudmask_reclass
     create_target_raster(
       final_stack = final_stack,
-      IPL_multitemporal_cloud_logical = IPL_multitemporal_cloud_logical,
       output_final_folder = output_final_folder
     )
 
@@ -325,37 +283,8 @@ dataset_creator_chips <- function(jsonfile,
       crs_kernel =  crs_kernel,
       output_final_folder = output_final_folder
     )
-    counter <- counter + 1
+      counter = counter + 1
   }
-
-  row_position <- gsub("point_", "", point_name) %>% as.numeric()
-  labelers_names <- c("Jhomira", "Fernando", "Eduardo")
-
-  # point_metadata
-  # df_final <- data_frame(
-  #   id = sprintf("%s_%02d", point_name, 1:5),
-  #   labeler = sp_db[row_position,]$labeler,
-  #   type = sp_db[row_position,]$label,
-  #   difficulty = NA,
-  #   sen2_id = s2_ids,
-  #   sen2_date = s2_dates,
-  #   sen1_id = s1_ids,
-  #   s1_date = s1_dates,
-  #   sen1_area = s1_area_per,
-  #   land_use = land_use,
-  #   elevation = elevation,
-  #   shadow_dir = shadow_dir,
-  #   split = NA,
-  #   state = FALSE,
-  #   evaluation_I = sp_db[row_position,]$validator,
-  #   evaluation_II = labelers_names[!(labelers_names %in% c(sp_db[row_position,]$validator, sp_db[row_position,]$labeler))],
-  #   evaluation_Expert = FALSE
-  # )
-  #
-  # write_csv(
-  #   x = df_final,
-  #   file = sprintf("%s/%s_metadata.csv", dirname(metadata_main), point_name)
-  # )
 
   # 5. Save geometry
   roi <- extent(final_stack[[1]]) %>%
@@ -363,6 +292,20 @@ dataset_creator_chips <- function(jsonfile,
     st_as_sfc()
   st_crs(roi) <- crs_kernel
   write_sf(roi, sprintf("%s/%s.gpkg", dirname(output_final_folder), point_name))
+
+  # 6. Create zip file
+  output_final_d <- sprintf("%s/dataset/%s", output_final, point_name)
+  llf <- list.files(output_final_d, full.names = TRUE, recursive = TRUE)
+  zip_file <- sprintf("%s/%s.zip", output_final, point_name)
+  zip(zip_file, llf)
+
+  Sys.sleep(1)
+  system(sprintf("rm -R %s/%s", output_final, point_name))
+
+  # 7. to GCS?
+  if (!is.null(gcs_bucket)) {
+     system(sprintf("gsutil cp %s %s", zip_file, gcs_bucket))
+  }
 
   # Return is everything is fine :)
   invisible(TRUE)
@@ -1092,19 +1035,11 @@ fix_shadow_direction <- function(raster) {
 
 #' Save Cloud mask available in Earth Engine
 #' @noRd
-create_target_raster <- function(final_stack, IPL_multitemporal_cloud_logical, output_final_folder) {
-  if (!IPL_multitemporal_cloud_logical) {
-    bandnames <- c("s2cloudness_prob", "s2cloudness_reclass", "sen2cor_real", "sen2cor_reclass")
-    benchmarch_data <- stack(final_stack[[c(18:21)]])
-    target_spec <- sprintf("%s/target/%s.tif", output_final_folder, bandnames)
-    lapply(1:4, function(x) writeRaster(benchmarch_data[[x]], target_spec[x], overwrite = TRUE))
-  } else {
-    IPL_cloudmask_reclass <- final_stack[[25]]
-    benchmarch_data <- stack(final_stack[[c(18:21)]], IPL_cloudmask_reclass)
-    bandnames <- c("s2cloudness_prob", "s2cloudness_reclass", "sen2cor_real", "sen2cor_reclass", "IPL_cloudmask_reclass")
-    target_spec <- sprintf("%s/target/%s.tif", output_final_folder, bandnames)
-    lapply(1:5, function(x) writeRaster(benchmarch_data[[x]], target_spec[x], overwrite = TRUE))
-  }
+create_target_raster <- function(final_stack, output_final_folder) {
+  bandnames <- c("s2cloudness_prob", "s2cloudness_reclass", "sen2cor_real", "sen2cor_reclass")
+  benchmarch_data <- stack(final_stack[[c(18:21)]])
+  target_spec <- sprintf("%s/target/%s.tif", output_final_folder, bandnames)
+  lapply(1:4, function(x) writeRaster(benchmarch_data[[x]], target_spec[x], overwrite = TRUE))
 }
 
 #' Create and save a thumbnail
@@ -1125,22 +1060,17 @@ ee_generate_thumbnail <- function(s2_id, final_stack, crs_kernel, output_final_f
   )
 
   # Download thumbnail
-  s2_img432 <- ee_as_raster(
+  gcs_name <- sprintf("%s_%s", format(Sys.time(), "%Y_%m_%d_%H_%M_%S"), basename(tempfile()))
+  raster_output <- sprintf("%s/thumbnails/thumbnail.tif", output_final_folder)
+  s2_img432_server <- ee_as_stars(
     image = ee$Image(s2_id)$select(c("B4","B3","B2"))$unitScale(0, 10000)$multiply(255)$toByte(),
     scale = 10,
+    dsn = raster_output,
     region = sf_as_ee(thumbnail_buffer),
-    quiet = TRUE
+    timePrefix = TRUE
   )
-
-  # Save thumbnail tif
-  writeRaster(s2_img432, sprintf("%s/thumbnails/thumbnail.tif", output_final_folder), overwrite = TRUE)
-
-  # Save thumbnail png
-  png(sprintf("%s/thumbnails/thumbnail.png", output_final_folder), 1021, 1021)
-  plotRGB(s2_img432, stretch = "lin")
-  plot(extent_stk, add=TRUE, border = "red", lwd = 3)
-  on.exit(dev.off())
 }
+
 
 
 #' Create lab:lab user
@@ -1910,7 +1840,7 @@ generate_preview <- function() {
 # }
 
 # Full download images
-download_cloudSEN12_images <- function(points, local_cloudsen2_points, output) {
+download_cloudSEN12_images <- function(points, local_cloudsen2_points, output, gcs_bucket = NULL) {
   # Create folder
   if (!dir.exists(output)) {
     dir.create(path = output, recursive = TRUE, showWarnings = TRUE)
@@ -1925,6 +1855,7 @@ download_cloudSEN12_images <- function(points, local_cloudsen2_points, output) {
         dataset_creator_chips(
           jsonfile = jsonfile,
           sp_db = local_cloudsen2_points,
+          gcs_bucket = gcs_bucket,
           output_final = output
         )
       )
@@ -3097,7 +3028,7 @@ db_migration_local <- function(point, dataset_dir, output) {
 
     file.copy(
       from = tempfiletif2,
-      to = sprintf("%s/%s/%s/models/sen2L1CQA.tif", output, point, s2_id),
+      to = sprintf("%s/%s/%s/models/qa60.tif", output, point, s2_id),
       overwrite = TRUE
     )
 
@@ -3124,3 +3055,4 @@ db_migration_local_batch <- function(points, dataset_dir, output) {
     try(db_migration_local(point = point, dataset_dir = dataset_dir, output = output))
   }
 }
+
