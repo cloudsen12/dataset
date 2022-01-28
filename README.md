@@ -4,7 +4,7 @@
   <br>    
 </h1>
 
-<h2 align="center">A benchmark dataset for cloud and cloud shadow semantic understanding</h2>
+<h2 align="center">A global dataset for cloud and cloud shadow semantic understanding</h2>
 
 <p align="center">  
   • 
