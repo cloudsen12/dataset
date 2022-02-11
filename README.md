@@ -34,7 +34,7 @@ This repository provides the code necessary for selecting, downloading, and gene
 
 	COMMING SOON 
 	
-## Credits
+## Acknowledgment
 
 This project gratefully acknowledges financial support from:
 
