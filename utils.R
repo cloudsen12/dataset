@@ -13,9 +13,9 @@ LAND_COVER_CLASSES <- list(
   "100" = "Moss and lichen"
 )
 
-ip_creator <- function(dataset) {
+ip_creator <- function(dataset, output) {
   # Directory path
-  dirpath <- sprintf("%s/%s", CLOUDSEN12_PATH, dataset$label_type)
+  dirpath <- sprintf("%s/%s", output, dataset$label_type)
 
   # Load S2 images
   s2l1c <- ee$Image(sprintf("COPERNICUS/S2/%s", dataset$sen2))
@@ -97,12 +97,12 @@ ip_creator <- function(dataset) {
   )
 }
 
-metadata_creator <- function(dataset, raster_ref) {
+metadata_creator <- function(dataset, raster_ref, output) {
   # Label type
   label_type <- dataset$label_type
   
   # Directory path
-  dirpath <- sprintf("%s/%s", CLOUDSEN12_PATH, dataset$label_type)
+  dirpath <- sprintf("%s/%s", output, dataset$label_type)
   
   # point id
   roi_id <- dataset$ROI

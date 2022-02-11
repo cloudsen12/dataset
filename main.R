@@ -35,6 +35,7 @@ source("utils.R")
 # Path with the cloudSEN12 dataset
 CLOUDSEN12_PATH <- "/media/csaybar/Elements SE/cloudSEN12/"
 
+
 # 1. Initialize Earth Engine ----------------------------------------------
 ee_Initialize()
 
@@ -48,10 +49,11 @@ index <- 1
 cloudsen12_ip <- cloudsen12_init[index,]
 
 # 4. Create a cloudSEN12 IP. ----------------------------------------------
-cloudsen12_ip_stars <- ip_creator(dataset = cloudsen12_ip)
+cloudsen12_ip_stars <- ip_creator(dataset = cloudsen12_ip, output = CLOUDSEN12_PATH)
 
 # 5. Create metadata object for each IP. ----------------------------------
 cloudsen12_ip_metadata <- metadata_creator(
   dataset = cloudsen12_ip,
-  raster_ref = cloudsen12_ip_stars
+  raster_ref = cloudsen12_ip_stars,
+  output = CLOUDSEN12_PATH
 )
