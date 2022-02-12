@@ -7,9 +7,8 @@
 <h2 align="center">A global dataset for cloud and cloud shadow semantic understanding</h2>
 
 <p align="center">  
-  • 
-  <a href="#why-we-need-another-cloud-detection-dataset">Introduction</a> &nbsp;•  
-  <a href="#characteristics">Instructions</a> &nbsp;•
+  •
+  <a href="#instructions">Instructions</a> &nbsp;•
   <a href="#citation">Citation</a> &nbsp;•
   <a href="#credits">Credits</a>  
 </p>
