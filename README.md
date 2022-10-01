@@ -31,7 +31,14 @@ This repository contains the code necessary for choosing, downloading, and produ
 
 ## Citation 
 
-	COMMING SOON 
+```
+@article{aybar2022cloudsen12,
+  title={CloudSEN12-a global dataset for semantic understanding of cloud and cloud shadow in Sentinel-2},
+  author={Aybar, Cesar and Ysuhuaylas, Luis and Loja, Jhomira and Gonzales, Karen and Herrera, Fernando and Yali, Roy and Flores, Angie and Diaz, Lissette and Cuenca, Nicole and Espinoza, Wendy and Prudencio, Fernando and Llactayo, Valeria and Montero, David and Sudmanns, Martin and Tiede, Dirk and Mateo-García, Gonzalo and Gómez-Chova, Luis},
+  year={2022},
+  publisher={EarthArXiv}
+}
+```
 	
 ## Acknowledgment
 
